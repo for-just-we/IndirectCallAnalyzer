@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(TypeDive)
+project(IndirectCallAnalyzer)
 
 set(CMAKE_CXX_STANDARD 14)
 
@@ -40,6 +40,6 @@ llvm_map_components_to_libnames(llvm_libs bitwriter core ipo irreader instcombin
 find_library(ZSTD_LIBRARY NAMES zstd PATHS ${ZSTD_PATH})
 message("-- ZSTD: ${ZSTD_LIBRARY}")
 
-add_executable(TypeDive main.cpp)
-target_link_libraries(TypeDive MltaLib ${llvm_libs} ${ZSTD_LIBRARY})
+add_executable(IndirectCallAnalyzer main.cpp)
+target_link_libraries(IndirectCallAnalyzer MltaLib ${llvm_libs} ${ZSTD_LIBRARY})
 add_subdirectory(lib)

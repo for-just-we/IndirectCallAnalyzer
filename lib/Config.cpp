@@ -3,5 +3,6 @@
 //
 #include "Config.h"
 
-bool ENABLE_MLTA = true;
+bool ENABLE_MLTA = false;
+bool ENABLE_SIGMATCH = false;
 bool debug_mode = false;

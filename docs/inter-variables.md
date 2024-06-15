@@ -9,7 +9,7 @@ TypeDive中涉及到的中间变量包括：
 
 - `map<Function*, map<Value*, Value*>> AliasStructPtrMap;`: 保存一个function F中涉及到类型转换的指令。
 比如在当前function中，有一个指令 `b% = bitcast ty1 %a ty2`，将 `ty1` 类型的变量 `a` 转化为 `ty2` 类型的变量 `b`。
-如果 `ty1` 和 `ty2` 满足下面关系，那么将 `a` -> `b` 添加进 `AliasStructPtrMap[F]`。
+如果 `ty1` 和 `ty2` 满足下面关系，那么将 `a` -> `b` 添加进 `AliasStructPtrMap[F]`。即保存 `void*` 转化为符合数据类型指针的指令
 
     * `ty1` 必须是 `void*`, `char*` 等8字节类型指针，即base指针类型。
 

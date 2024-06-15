@@ -24,30 +24,31 @@ protected:
     // Global信息
     GlobalContext *Ctx;
 
+
     ////////////////////////////////////////////////////////////////
     // Important data structures for type confinement, propagation,
     // and escapes.
     ////////////////////////////////////////////////////////////////
-    DenseMap<size_t, map<int, FuncSet>> typeIdxFuncsMap; // type-func set
-    map<size_t, map<int, set<hashidx_t>>> typeIdxPropMap; // type-prop set，表示type t_key的第i个field会被type t_value的第j个field传值
+    DenseMap<size_t, map<int, FuncSet>>typeIdxFuncsMap;
+    map<size_t, map<int, set<hashidx_t>>>typeIdxPropMap;
     set<size_t> typeEscapeSet;
     // Cap type: We cannot know where the type can be futher
     // propagated to. Do not include idx in the hash
     set<size_t> typeCapSet;
 
+
     ////////////////////////////////////////////////////////////////
     // Other data structures
     ////////////////////////////////////////////////////////////////
     // Cache matched functions for CallInst
-    DenseMap<size_t, FuncSet> MatchedFuncsMap;
-    // Applying to virtuall-function, which requires extra efforts because it frequently cast to general types such as char*
-    DenseMap<Value *, FuncSet> VTableFuncsMap;
+    DenseMap<size_t, FuncSet>MatchedFuncsMap;
+    DenseMap<Value *, FuncSet>VTableFuncsMap;
 
-    set<size_t> srcLnHashSet;
-    set<size_t> addrTakenFuncHashSet;
+    set<size_t>srcLnHashSet;
+    set<size_t>addrTakenFuncHashSet;
 
-    map<size_t, set<size_t>> calleesSrcMap;
-    map<size_t, set<size_t>> L1CalleesSrcMap;
+    map<size_t, set<size_t>>calleesSrcMap;
+    map<size_t, set<size_t>>L1CalleesSrcMap;
 
     // Matched icall types -- to avoid repeatation
     DenseMap<size_t, FuncSet> MatchedICallTypeMap;
@@ -61,8 +62,13 @@ protected:
     FuncSet OutScopeFuncs;
 
     // Alias struct pointer of a general pointer
-    // 保存Function F中char*, void*到其它结构体类型的转换，每个function只记录一种
-    map<Function*, map<Value*, Value*>> AliasStructPtrMap;
+    map<Function *, map<Value *, Value *>>AliasStructPtrMap;
+
+
+
+    //
+    // Methods
+    //
 
     ////////////////////////////////////////////////////////////////
     // Type-related basic functions
@@ -77,7 +83,8 @@ protected:
     Function *getBaseFunction(Value *V);
     bool nextLayerBaseType(Value *V, list<typeidx_t> &TyList,
                            Value * &NextV, set<Value *> &Visited);
-
+    bool nextLayerBaseTypeWL(Value *V, list<typeidx_t> &TyList,
+                             Value * &NextV);
     bool getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList);
     bool getBaseTypeChain(list<typeidx_t> &Chain, Value *V,
                           bool &Complete);
@@ -95,6 +102,10 @@ protected:
     bool typePropInFunction(Function *F);
     void collectAliasStructPtr(Function *F);
 
+    // deprecated
+    Value *getVTable(Value *V);
+
+
     ////////////////////////////////////////////////////////////////
     // API functions
     ////////////////////////////////////////////////////////////////
@@ -111,6 +122,7 @@ protected:
     bool isCompositeType(Type *Ty);
     Type *getFuncPtrType(Value *V);
     Value *recoverBaseType(Value *V);
+    void unrollLoops(Function *F);
 
 
 public:

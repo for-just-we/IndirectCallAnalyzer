@@ -26,6 +26,7 @@ using namespace llvm;
 // Implementation
 //
 void CallGraphPass::doMLTA(Function *F) {
+    unrollLoops(F);
     // Collect callers and callees
     for (inst_iterator i = inst_begin(F), e = inst_end(F);
          i != e; ++i) {
@@ -42,8 +43,22 @@ void CallGraphPass::doMLTA(Function *F) {
                 // Multi-layer type matching
                 if (ENABLE_MLTA)
                     findCalleesWithMLTA(CI, *FS);
-                else
-                    *FS = Ctx->sigFuncsMap[callHash(CI)];
+                else {
+                    // 如果是签名匹配
+                    if (ENABLE_SIGMATCH)
+                        *FS = Ctx->sigFuncsMap[callHash(CI)];
+                    // 如果是参数数量匹配
+                    else {
+                        size_t CIH = callHash(CI);
+                        if (MatchedICallTypeMap.find(CIH) != MatchedICallTypeMap.end())
+                            *FS = MatchedICallTypeMap[CIH];
+                        else {
+                            findCalleesWithType(CI, *FS);
+                            MatchedICallTypeMap[CIH] = *FS;
+                        }
+                    }
+                }
+
 
                 for (Function *Callee : *FS)
                     // OP << "**** solving callee: " << Callee->getName().str() << "\n";
@@ -59,7 +74,7 @@ void CallGraphPass::doMLTA(Function *F) {
                     Ctx->NumValidIndirectCalls++;
                 }
             }
-                // Direct call
+            // Direct call
             else {
                 // not InlineAsm
                 if (CF) {

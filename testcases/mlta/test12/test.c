@@ -1,9 +1,6 @@
 //
-// This testcase if from paper Where Does It Go? Refining Indirect-Call Targets with Multi-Layer Type Analysis
+// Created by prophe cheng on 2024/6/15.
 //
-
-#include <stdio.h>
-#include <string.h>
 
 #define MAX_LEN 10
 
@@ -12,17 +9,26 @@ struct A { fptr_t handler; };
 struct B { struct A a; }; // B is an outer layer of A
 struct C { struct A a; }; // C is an outer layer of A
 
+int strlen(char* str) {
+    int len = 0;
+    char* p = str;
+    while(*p != '\0') {
+        p++;
+        len++;
+    }
+    return len;
+}
+
 void copy_with_check(char *dst, char *src) {
-    if (strlen(src) < MAX_LEN)
-        strcpy(dst, src);
+    if (strlen(src) < MAX_LEN) {
+
+    }
 }
 
 void copy_no_check(char *dst, char *src) {
-    strcpy(dst, src);
-}
 
-// Store functions with initializers
-struct B b = { .a = { .handler = &copy_with_check } };
+}
+struct B b;
 
 // Store function with store instruction
 struct C c;
@@ -37,6 +43,7 @@ void handle_input(char *user_input) {
 int main(int argc, char **argv) {
     char* user_input = argv[1];
     c.a.handler = &copy_no_check;
+    b.a.handler = copy_with_check;
     handle_input(user_input);
     return 0;
 }

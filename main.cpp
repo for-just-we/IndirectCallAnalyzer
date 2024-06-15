@@ -34,6 +34,12 @@ cl::opt<bool> MLTA(
         cl::desc("Multi-layer type analysis for refining indirect-call targets"),
         cl::NotHidden, cl::init(false));
 
+// 默认逐个匹配类型而不是比对函数签名
+cl::opt<bool> SIG_MATCH(
+        "sig_match",
+        cl::desc("Use signature match when use FLTA. Default compare argument of each type."),
+        cl::NotHidden, cl::init(false));
+
 cl::opt<bool> DebugMode(
         "debug",
         cl::desc("debug mode"),
@@ -119,6 +125,7 @@ int main(int argc, char** argv) {
     }
 
     ENABLE_MLTA = MLTA;
+    ENABLE_SIGMATCH = SIG_MATCH;
     debug_mode = DebugMode;
 
     // 进行indirect-call分析

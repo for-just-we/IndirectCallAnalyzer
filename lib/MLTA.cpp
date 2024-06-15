@@ -16,6 +16,10 @@
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/Analysis/LoopInfo.h"
+// used dominator tree
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+
 
 #include "Common.h"
 #include "MLTA.h"
@@ -37,17 +41,32 @@ pair<size_t, int> hashidx_c(size_t Hash, int Idx) {
     return make_pair(Hash, Idx);
 }
 
+// 比对两个类型是否相等
 bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2,
                           Module *M1, Module *M2) {
-
+    // 如果两个类型一样，直接返回true
     if (Ty1 == Ty2)
         return true;
 
+    // Make the type analysis conservative: assume general
+    // pointers, i.e., "void *" and "char *", are equivalent to
+    // any pointer type and integer type.
+    if ((Ty1 == Int8PtrTy[M1] && (Ty2->isPointerTy() || Ty2 == IntPtrTy[M2])) ||
+         (Ty2 == Int8PtrTy[M1] && (Ty1->isPointerTy() || Ty1 == IntPtrTy[M2]))) {
+        return true;
+    }
+
+    // Conservative: Treat all integer type as same
+    if (Ty1->isIntegerTy() && Ty2->isIntegerTy())
+        return true;
+
+    // This will change Ty1 and Ty2 hence should follow comparsion like void* and char*
     while (Ty1->isPointerTy() && Ty2->isPointerTy()) {
         Ty1 = Ty1->getPointerElementType();
         Ty2 = Ty2->getPointerElementType();
     }
 
+    // 如果都是结构体且属于同一个结构体类型
     if (Ty1->isStructTy() && Ty2->isStructTy() &&
         (Ty1->getStructName().equals(Ty2->getStructName())))
         return true;
@@ -56,30 +75,7 @@ bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2,
         return true;
     // TODO: more types to be supported.
 
-    // Make the type analysis conservative: assume general
-    // pointers, i.e., "void *" and "char *", are equivalent to
-    // any pointer type and integer type.
-    if (
-            (Ty1 == Int8PtrTy[M1] &&
-             (Ty2->isPointerTy() || Ty2 == IntPtrTy[M2]))
-            ||
-            (Ty2 == Int8PtrTy[M1] &&
-             (Ty1->isPointerTy() || Ty1 == IntPtrTy[M2]))
-            )
-        return true;
-
     return false;
-}
-
-// FS = FS1 & FS2
-void MLTA::intersectFuncSets(FuncSet &FS1, FuncSet &FS2,
-                             FuncSet &FS) {
-    FS.clear();
-    for (auto F : FS1) {
-        // 如果FS1中的F在FS2中
-        if (FS2.find(F) != FS2.end())
-            FS.insert(F);
-    }
 }
 
 
@@ -103,18 +99,16 @@ void MLTA::findCalleesWithType(CallInst *CI, FuncSet &S) {
 
     CallBase *CB = dyn_cast<CallBase>(CI);
     for (Function *F : Ctx->AddressTakenFuncs) {
-        // VarArg
+        // VarArg （可变参数）
         if (F->getFunctionType()->isVarArg()) {
             // Compare only known args in VarArg.
         }
-            // otherwise, the numbers of args should be equal.
-        else if (F->arg_size() != CB->arg_size()) {
+        // otherwise, the numbers of args should be equal.
+        else if (F->arg_size() != CB->arg_size())
             continue;
-        }
 
-        if (F->isIntrinsic()) {
+        if (F->isIntrinsic())
             continue;
-        }
 
         // Types completely match
         if (callHash(CI) == funcHash(F)) {
@@ -142,6 +136,7 @@ void MLTA::findCalleesWithType(CallInst *CI, FuncSet &S) {
         }
 
         // If args are matched, further check return types
+        // ToDo: Check whether return type check is needed
         if (Matched) {
             Type *RTy1 = F->getReturnType();
             Type *RTy2 = CI->getType();
@@ -157,17 +152,27 @@ void MLTA::findCalleesWithType(CallInst *CI, FuncSet &S) {
     MatchedFuncsMap[CIH] = S;
 }
 
+// FS = FS1 & FS2
+void MLTA::intersectFuncSets(FuncSet &FS1, FuncSet &FS2,
+                             FuncSet &FS) {
+    FS.clear();
+    for (auto F : FS1) {
+        // 如果FS1中的F在FS2中
+        if (FS2.find(F) != FS2.end())
+            FS.insert(F);
+    }
+}
+
+
 // 判断是不是复合类型
 bool MLTA::isCompositeType(Type *Ty) {
-    if (Ty->isStructTy()
-        || Ty->isArrayTy()
-        || Ty->isVectorTy())
+    if (Ty->isStructTy() || Ty->isArrayTy() || Ty->isVectorTy())
         return true;
     else
         return false;
 }
 
-// 获取函数指针类型
+// 返回该value的函数指针类型，如果该value不是函数指针，那么返回NULL
 Type *MLTA::getFuncPtrType(Value *V) {
     Type *Ty = V->getType();
     if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
@@ -212,14 +217,14 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
         User *U = LU.front();
         LU.pop_front();
         // 如果该聚合常量访问过，跳过
-        if (Visited.find(U) != Visited.end()) {
+        if (Visited.find(U) != Visited.end())
             continue;
-        }
+
         Visited.insert(U);
         // 获取聚合常量的类型
         Type *UTy = U->getType();
         assert(!UTy->isFunctionTy());
-        // 如果是结构体类型的聚合常量，那么判定常量数量大于0
+        // 如果是结构体类型的聚合常量并且子常量数量大于0，那么判定常量数量等于结构体field数量
         if (StructType *STy = dyn_cast<StructType>(U->getType())) {
             if (U->getNumOperands() > 0)
                 assert(STy->getNumElements() == U->getNumOperands());
@@ -253,6 +258,7 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
                 LU.push_back(OU);
             }
             // case2: 该常量为pointer cast to int, 也就是将函数指针cast到intptr_t或者uintptr_t类型
+            // 比如 1.(int)func 这种将函数地址cast到int 或者为 2.(int)&{...} 将聚合常量地址cast到int
             else if (PtrToIntOperator *PIO = dyn_cast<PtrToIntOperator>(O)) {
                 // PIO->getOperand(0)返回ptrtoint的指针变量
                 // 如果是函数指针
@@ -266,6 +272,7 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
                 }
             }
             // case3，将函数指针cast到void*或者char*类型
+            // 比如 1.(void*)func 2.(int)&{...} 将聚合常量地址cast到void*
             else if (BitCastOperator *CO = dyn_cast<BitCastOperator>(O)) {
                 // Virtual functions will always be cast by inserting the first parameter
                 Function *CF = dyn_cast<Function>(CO->getOperand(0));
@@ -304,8 +311,11 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
                         << GO->getName().str() << "\n";
                     Type* Ty = POTy->getPointerElementType(); // 获取指针变量的类型
                     // FIXME: take it as a confinement instead of a cap
-                    if (Ty->isStructTy())
+                    if (Ty->isStructTy()) {
+                        DBG << "add escape type: " << getTypeInfo(Ty) << "\n";
                         typeCapSet.insert(typeHash(Ty));
+                    }
+
                 }
             }
             else {
@@ -368,12 +378,12 @@ void MLTA::collectAliasStructPtr(Function *F) {
 
             Type *FromTy = FromV->getType(); // 原始类型
             Type *ToTy = CI->getType(); // 转换后类型
-            if (Int8PtrTy[F->getParent()] != FromTy) // FromTy必须为 int8* 类型，很多函数指针都会被cast到(int* )
+            // 必须是从void*类型指针cast到结构体类型
+            if (Int8PtrTy[F->getParent()] != FromTy)
                 continue;
             // 转换后不是指针类型，跳过
             if (!ToTy->isPointerTy())
                 continue;
-
             if (!isCompositeType(ToTy->getPointerElementType())) // 如果ToTy的基类型不是复杂类型
                 continue;
 
@@ -420,12 +430,13 @@ bool MLTA::typeConfineInFunction(Function *F) {
             Function *CF = getBaseFunction(VO->stripPointerCasts());
             if (!CF)
                 continue;
-            if (F->isIntrinsic())
+            // ToDo: verify this is F or CF
+            if (CF->isIntrinsic())
                 continue;
 
             // 将指令的文本表示导入字符串
             string instructionText = getInstructionText(PO);
-            DBG << "confining instruction: " << instructionText << " to function: " << CF->getName().str() << "\n";
+            DBG << "confining function: " << CF->getName().str() << " to pointer: " << instructionText << "\n";
             confineTargetFunction(PO, CF);
         }
         // 访问所有参数包含了函数指针的函数调用
@@ -436,7 +447,7 @@ bool MLTA::typeConfineInFunction(Function *F) {
                 if (Function *FF = dyn_cast<Function>(*OI)) { // 如果该参数是个函数对象，即将函数指针作为参数
                     if (FF->isIntrinsic())
                         continue;
-                    // 如果callsite是indirect-call
+                    // 如果callsite是indirect-call, 不太确定这段代码的效果
                     if (CI->isIndirectCall()) {
                         string instructionText = getInstructionText(*OI);
                         DBG << "confining instruction: " << instructionText
@@ -471,8 +482,7 @@ bool MLTA::typeConfineInFunction(Function *F) {
                             }
                         }
                     }
-                    // TODO: track into the callee to avoid marking the
-                    // function type as a cap
+                    // TODO: track into the callee to avoid marking the function type as a cap
                 }
             }
         }
@@ -482,7 +492,7 @@ bool MLTA::typeConfineInFunction(Function *F) {
 }
 
 // cast有3种情况：
-// 1.store ptr value 2.memcpy(dst, src) 3.cast type1->type2
+// 1.store ptr value 2.结构体赋值 3.cast type1->type2
 bool MLTA::typePropInFunction(Function *F) {
     // Two cases for propagation: store and cast.
     // For store, LLVM may use memcpy
@@ -493,9 +503,11 @@ bool MLTA::typePropInFunction(Function *F) {
         Value *PO = NULL, *VO = NULL;
 
         // case1: store
+        // *PO = VO
         if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
             PO = SI->getPointerOperand(); // store的指针变量，dest
             VO = SI->getValueOperand(); // 被store的value，也就是函数地址，source
+            DBG << "store inst: " << getInstructionText(SI) << "\n";
         }
         // case2: 用聚合常量给结构体变量赋值
         else if (CallInst *CI = dyn_cast<CallInst>(I)) {
@@ -507,10 +519,11 @@ bool MLTA::typePropInFunction(Function *F) {
                 if (CF->getName() == "llvm.memcpy.p0i8.p0i8.i64") {
                     PO = CI->getOperand(0); // dest指向结构体变量
                     VO = CI->getOperand(1); // source指向聚合常量
+                    DBG << "memcpy store: " << getInstructionText(CI) << "\n";
                 }
             }
         }
-
+        // *PO = VO
         if (PO && VO) {
             // TODO: if VO is a global with an initializer, this should be
             // taken as a confinement instead of propagation, which can
@@ -526,6 +539,7 @@ bool MLTA::typePropInFunction(Function *F) {
             if (!TyList.empty()) {
                 for (auto TyIdx : TyList) {
                     DBG << "processing store instruction: " << getInstructionText(I) << "\n";
+                    // (srcType, srcTypeIdx) -> Type of PO
                     propagateType(PO, TyIdx.first, TyIdx.second);
                 }
                 continue;
@@ -534,7 +548,7 @@ bool MLTA::typePropInFunction(Function *F) {
             Visited.clear();
             // source操作数基类型
             Type *BTy = getBaseType(VO, Visited);
-            // Composite type
+            // Composite type，可能对应llvm.memcpy函数
             if (BTy) {
                 propagateType(PO, BTy);
                 continue;
@@ -546,16 +560,20 @@ bool MLTA::typePropInFunction(Function *F) {
                 if (!getBaseFunction(VO)) {
                     // 从FTy cast到PO
                     propagateType(PO, FTy);
+                    // PO takes function pointer variable instead of function constant, should be deemed escaped.
+                    escapeType(PO);
                     continue;
                 }
                 else
                     continue;
             }
-            // store中source出现了其它类型的指针
+            DBG << "VO type: " << getInstructionText(VO->getType()) << "\n";
+            // 如果被store的变量VO不是指针类型，则跳过
             if (!VO->getType()->isPointerTy())
                 continue;
             // VO->getType()->isPointerTy()
             else
+                // 如果到这步说明VO不是常量、
                 // General-pointer type for escaping
                 escapeType(PO);
         }
@@ -586,8 +604,8 @@ bool MLTA::typePropInFunction(Function *F) {
             Type *EFromTy = FromTy->getPointerElementType();
             Type *EToTy = ToTy->getPointerElementType();
             if (EFromTy->isStructTy() && EToTy->isStructTy()) {
-                DBG << "processing bitcast: " << getInstructionText(Cast) << "\n";
-                propagateType(Cast, EFromTy, -1);
+                // DBG << "processing bitcast: " << getInstructionText(Cast) << "\n";
+                // propagateType(Cast, EFromTy, -1);
             }
         }
     }
@@ -596,7 +614,7 @@ bool MLTA::typePropInFunction(Function *F) {
 }
 
 
-// 要么初始值是function，要么一直cast
+// 要么初始值是function，要么一直cast，不过这里没有考虑ptrtoint的情况了。
 Function *MLTA::getBaseFunction(Value *V) {
     if (Function *F = dyn_cast<Function>(V))
         if (!F->isIntrinsic())
@@ -620,6 +638,7 @@ Function *MLTA::getBaseFunction(Value *V) {
 // This function is to get the base type in the current layer.
 // To get the type of next layer (with GEP and Load), use
 // nextLayerBaseType() instead.
+// 这里有个trick，对结构体类型返回其类型，如果是primitive type或者函数指针类型，getBaseType返回null
 Type *MLTA::getBaseType(Value *V, set<Value*> &Visited) {
     if (!V)
         return NULL;
@@ -639,7 +658,7 @@ Type *MLTA::getBaseType(Value *V, set<Value*> &Visited) {
         // 如果是复杂数据结构指针类型
         if (isCompositeType(ETy))
             return ETy;
-        // 如果是被cast到其它类型的int8*类型，返回cast后的base类型
+        // 如果该value是void*类型并且被cast到其它复合数据类型，返回cast后的类型
         else if (Value *BV = recoverBaseType(V))
             return BV->getType()->getPointerElementType();
     }
@@ -664,7 +683,6 @@ Type *MLTA::getBaseType(Value *V, set<Value*> &Visited) {
     }
     else {
     }
-
     return NULL;
 }
 
@@ -702,8 +720,9 @@ void MLTA::propagateType(Value *ToV, Type *FromTy, int Idx) {
 }
 
 // Get the chain of base types for V
-// Complete: whether the chain's end is not escaping---it won't
+// Complete: whether the chain's end is not escaping --- it won't
 // propagate further
+// Chain: 保存value V的type chain， V：被赋值的value，Complete：分析是否完备
 bool MLTA::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete) {
     Complete = true;
     Value *CV = V, *NextV = NULL;
@@ -716,24 +735,24 @@ bool MLTA::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete) {
         Chain.push_back(typeidx_c(BTy, 0));
     }
     Visited.clear();
-
-    // 遍历每一层
-    while (nextLayerBaseType(CV, TyList, NextV, Visited)) {
+    // 沿着top-level variable的def-use chain进行分析
+    while (nextLayerBaseType(CV, TyList, NextV, Visited))
         CV = NextV;
-    }
-    for (auto TyIdx : TyList) {
+
+    for (auto TyIdx : TyList)
         Chain.push_back(typeidx_c(TyIdx.first, TyIdx.second));
-    }
 
     // Checking completeness
-    if (!NextV)
+    if (!NextV) {
         Complete = false;
+    }
 
     else if (isa<Argument>(NextV) && NextV->getType()->isPointerTy()) {
         Complete = false;
     }
+
     else {
-        for (auto U : NextV->users()) {
+        for (auto U: NextV->users()) {
             if (StoreInst *SI = dyn_cast<StoreInst>(U)) {
                 if (NextV == SI->getPointerOperand()) {
                     Complete = false;
@@ -745,6 +764,7 @@ bool MLTA::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete) {
     }
 
     if (!Chain.empty() && !Complete) {
+        DBG << "add escape type in get base chain: " << getTypeInfo(Chain.back().first) << "\n";
         typeCapSet.insert(typeHash(Chain.back().first));
     }
 
@@ -752,8 +772,11 @@ bool MLTA::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete) {
 }
 
 
-// Get the composite type of the lower layer. Layers are split by
-// memory loads or GEP
+// Get the composite type of the lower layer. Layers are split by memory loads or GEP
+// 沿着top-level variable的def-use chain进行追踪
+// V: 当前层次的value，NextV：保存下一层value，TyList：保存当前value的类型层次
+// 需要注意的是在LLVM编译的时候，有的连续field访问比如 b.a.func，有时只对应1个getelementptr指令，有时会处理多个。
+// 一次nextLayerBaseType最多处理到一个getelementptr，如果有多个需要用while循环处理
 bool MLTA::nextLayerBaseType(Value* V, list<typeidx_t> &TyList,
                              Value* &NextV, set<Value*> &Visited) {
     if (!V || isa<Argument>(V)) {
@@ -767,8 +790,7 @@ bool MLTA::nextLayerBaseType(Value* V, list<typeidx_t> &TyList,
     }
     Visited.insert(V);
 
-    // The only way to get the next layer type: GetElementPtrInst or
-    // GEPOperator
+    // The only way to get the next layer type: GetElementPtrInst or GEPOperator
     // gep格式为getelementptr inbounds %struct.ST, ptr %s, f1, f2, f3, f4, ...
     if (GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
         NextV = GEP->getPointerOperand(); // 返回s
@@ -799,9 +821,8 @@ bool MLTA::nextLayerBaseType(Value* V, list<typeidx_t> &TyList,
             NVisited = Visited;
             NTyList = TyList;
             ret = nextLayerBaseType(IV, NTyList, NextV, NVisited);
-            if (NTyList.size() > TyList.size()) {
+            if (NTyList.size() > TyList.size())
                 break;
-            }
         }
         TyList = NTyList;
         Visited = NVisited;
@@ -835,11 +856,10 @@ void MLTA::escapeType(Value *V) {
     }
 }
 
-
+// function F被赋值给了Value V，等于 v = F
 void MLTA::confineTargetFunction(Value *V, Function *F) {
     if (F->isIntrinsic())
         return;
-
     StoredFuncs.insert(F);
 
     list<typeidx_t> TyChain;
@@ -852,13 +872,17 @@ void MLTA::confineTargetFunction(Value *V, Function *F) {
         typeIdxFuncsMap[typeHash(TI.first)][TI.second].insert(F);
     }
     if (!Complete) {
-        if (!TyChain.empty())
+        if (!TyChain.empty()) {
+            DBG << "add escape type in confining function : " << getTypeInfo(TyChain.back().first) << "\n";
             typeCapSet.insert(typeHash(TyChain.back().first));
-        else
-            typeCapSet.insert(funcHash(F));
+        }
+        else {
+            // ToDo: verify is this necessary.
+            // typeCapSet.insert(funcHash(F));
+        }
+
     }
 }
-
 
 
 bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
@@ -869,12 +893,10 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
     list<typeidx_t> TmpTyList;
     // FIXME: handle downcasting: the GEP may get a field outside the base type Or use O0 to avoid this issue
     ConstantInt *ConstI = dyn_cast<ConstantInt>(GEP->idx_begin()->get());
-    // 遍历getelementptr指令所有的索引
     if (ConstI && ConstI->getSExtValue() != 0) {
         // FIXME: The following is an attempt to handle the intentional
         // out-of-bound access; however, it is not fully working, so I
         // skip it for now
-        //
         Instruction *I = dyn_cast<Instruction>(PO);
         Value *BV = recoverBaseType(PO);
         // 如果是int8*指针cast到其它指针
@@ -884,10 +906,9 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
             APInt Offset (ConstI->getBitWidth(),
                           ConstI->getZExtValue());
             Type *BaseTy = ETy;
-            SmallVector<APInt>IndiceV = DLMap[I->getModule()]->getGEPIndicesForOffset(BaseTy, Offset);
-            for (auto Idx : IndiceV) {
+            SmallVector<APInt> IndiceV = DLMap[I->getModule()]->getGEPIndicesForOffset(BaseTy, Offset);
+            for (auto Idx : IndiceV)
                 Indices.push_back(*Idx.getRawData());
-            }
         }
         else if (StructType *STy = dyn_cast<StructType>(ETy)) {
             bool OptGEP = false;
@@ -905,6 +926,7 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
         }
     }
 
+    // Indices保存getelementptr指令所有的索引，比如getelementptr inbounds %struct.ST, ptr %s, f1, f2, f3, f4 返回f1, f2, f3, f4
     if (Indices.empty()) {
         for (auto it = GEP->idx_begin(); it != GEP->idx_end(); it++) {
             ConstantInt *ConstII = dyn_cast<ConstantInt>(it->get());
@@ -915,24 +937,19 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
         }
     }
 
-    // 遍历结构体层次
+    // 遍历结构体层次, 这里会忽略第1项，关于第一项介绍参考：https://llvm.org/docs/GetElementPtr.html#what-is-the-first-index-of-the-gep-instruction
     for (auto it = Indices.begin() + 1; it != Indices.end(); it++) {
         int Idx = *it;
         TmpTyList.push_front(typeidx_c(ETy, Idx));
-
         // Continue to parse subty
         Type* SubTy = NULL;
-        if (StructType *STy = dyn_cast<StructType>(ETy)) {
+        if (StructType *STy = dyn_cast<StructType>(ETy))
             SubTy = STy->getElementType(Idx);
-        }
-        else if (ArrayType *ATy = dyn_cast<ArrayType>(ETy)) {
+        else if (ArrayType *ATy = dyn_cast<ArrayType>(ETy))
             SubTy = ATy->getElementType();
-        }
-        else if (VectorType *VTy = dyn_cast<VectorType>(ETy)) {
+        else if (VectorType *VTy = dyn_cast<VectorType>(ETy))
             SubTy = VTy->getElementType();
-        }
         assert(SubTy);
-
         ETy = SubTy;
     }
     // This is a trouble caused by compiler optimization that
@@ -956,9 +973,8 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
 
     if (!TmpTyList.empty()) {
         // Reorder
-        for (auto TyIdx : TmpTyList) {
+        for (auto TyIdx : TmpTyList)
             TyList.push_back(TyIdx);
-        }
         return true;
     }
     else
@@ -966,13 +982,111 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
 }
 
 
+void MLTA::unrollLoops(Function *F) {
+    if (F->isDeclaration())
+        return;
+
+    DominatorTree DT = DominatorTree();
+    DT.recalculate(*F);
+    LoopInfo *LI = new LoopInfo();
+    LI->releaseMemory();
+    LI->analyze(DT);
+
+    // Collect all loops in the function
+    set<Loop *> LPSet;
+    for (LoopInfo::iterator i = LI->begin(), e = LI->end(); i!=e; ++i) {
+        Loop *LP = *i;
+        LPSet.insert(LP);
+
+        list<Loop *> LPL;
+        LPL.push_back(LP);
+        while (!LPL.empty()) {
+            LP = LPL.front();
+            LPL.pop_front();
+            vector<Loop *> SubLPs = LP->getSubLoops();
+            for (auto SubLP : SubLPs) {
+                LPSet.insert(SubLP);
+                LPL.push_back(SubLP);
+            }
+        }
+    }
+
+    for (Loop *LP : LPSet) {
+        // Get the header,latch block, exiting block of every loop
+        BasicBlock *HeaderB = LP->getHeader();
+        unsigned NumBE = LP->getNumBackEdges();
+        SmallVector<BasicBlock *, 4> LatchBS;
+
+        LP->getLoopLatches(LatchBS);
+        for (BasicBlock *LatchB : LatchBS) {
+            if (!HeaderB || !LatchB) {
+                OP<<"ERROR: Cannot find Header Block or Latch Block\n";
+                continue;
+            }
+            // Two cases:
+            // 1. Latch Block has only one successor:
+            // 	for loop or while loop;
+            // 	In this case: set the Successor of Latch Block to the
+            //	successor block (out of loop one) of Header block
+            // 2. Latch Block has two successor:
+            // do-while loop:
+            // In this case: set the Successor of Latch Block to the
+            //  another successor block of Latch block
+
+            // get the last instruction in the Latch block
+            Instruction *TI = LatchB->getTerminator();
+            // Case 1:
+            if (LatchB->getSingleSuccessor() != NULL) {
+                for (succ_iterator sit = succ_begin(HeaderB);
+                     sit != succ_end(HeaderB); ++sit) {
+
+                    BasicBlock *SuccB = *sit;
+                    BasicBlockEdge BBE = BasicBlockEdge(HeaderB, SuccB);
+                    // Header block has two successor,
+                    // one edge dominate Latch block;
+                    // another does not.
+                    if (DT.dominates(BBE, LatchB))
+                        continue;
+                    else
+                        TI->setSuccessor(0, SuccB);
+                }
+            }
+            // Case 2:
+            else {
+                for (succ_iterator sit = succ_begin(LatchB);
+                     sit != succ_end(LatchB); ++sit) {
+                    BasicBlock *SuccB = *sit;
+                    // There will be two successor blocks, one is header
+                    // we need successor to be another
+                    if (SuccB == HeaderB)
+                        continue;
+                    else
+                        TI->setSuccessor(0, SuccB);
+                }
+            }
+        }
+    }
+}
+
 // indirect-call求解部分
 // The API for MLTA: it returns functions for an indirect call
 bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
     // Initial set: first-layer results
     // TODO: handling virtual functions
     // 获得FLTA结果
-    FS = Ctx->sigFuncsMap[callHash(CI)];
+    // 如果是签名匹配
+    if (ENABLE_SIGMATCH)
+        FS = Ctx->sigFuncsMap[callHash(CI)];
+        // 如果是参数数量匹配
+    else {
+        size_t CIH = callHash(CI);
+        if (MatchedICallTypeMap.find(CIH) != MatchedICallTypeMap.end())
+            FS = MatchedICallTypeMap[CIH];
+        else {
+            findCalleesWithType(CI, FS);
+            MatchedICallTypeMap[CIH] = FS;
+        }
+    }
 
     if (FS.empty())
         // No need to go through MLTA if the first layer is empty
@@ -989,22 +1103,29 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
     // Get the next-layer type
     list<typeidx_t> TyList;
     bool ContinueNextLayer = true;
+    DBG << "analyzing call: " << getInstructionText(CI) << "\n";
     while (ContinueNextLayer) {
         // Check conditions
         if (LayerNo >= MAX_TYPE_LAYER)
             break;
 
-#ifdef SOUND_MODE
         // isNotSupported(CurType)
-        if (typeCapSet.find(typeHash(PrevLayerTy)) != typeCapSet.end())
-			break;
-#endif
+        // ToDo: verify whether this is necessary
+        if (typeCapSet.find(typeHash(PrevLayerTy)) != typeCapSet.end()) {
+            DBG << "found escaped type in outside: " << getInstructionText(PrevLayerTy) << "\n";
+            break;
+        }
 
         set<Value*> Visited;
         nextLayerBaseType(CV, TyList, NextV, Visited);
         if (TyList.empty())
             break;
 
+        for (typeidx_t TyIdx : TyList)
+            DBG << "type: " << getInstructionText(TyIdx.first) << " idx: " << TyIdx.second << " ---- ";
+        DBG << "\n";
+
+        // 如果类型层次是B.a(A).f，那么TyList依次为 (A, f), (B, a)
         for (typeidx_t TyIdx : TyList) {
             if (LayerNo >= MAX_TYPE_LAYER)
                 break;
@@ -1018,13 +1139,15 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
             if (MatchedFuncsMap.find(TyIdxHash) != MatchedFuncsMap.end())
                 FS1 = MatchedFuncsMap[TyIdxHash];
             else {
-#ifdef SOUND_MODE
                 // CurType ∈ escaped-type
-                if (typeEscapeSet.find(TyIdxHash) != typeEscapeSet.end())
-					break;
+                if (typeEscapeSet.find(TyIdxHash) != typeEscapeSet.end()) {
+                    DBG << "escaped type: " << getInstructionText(TyIdx.first) << " --- Idx: " << TyIdx.second << "\n";
+                    break;
+                }
+
 				if (typeEscapeSet.find(TyIdxHash_1) != typeEscapeSet.end())
 					break;
-#endif
+
                 getTargetsWithLayerType(typeHash(TyIdx.first), TyIdx.second, FS1);
                 // Collect targets from dependent types that may propagate
                 // targets to it
@@ -1045,12 +1168,13 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
             FS = FS2; // FS = FS & FS1
             CV = NextV;
 
-#ifdef SOUND_MODE
+            // 如果出现了层次结构体赋值，比如test13中的b.a = a2; 此时B::a并不会confine到function，应该被标记为escaped，但是B::a不是函数指针field。
+            // 因此将B标注为escaped type就有必要。
             if (typeCapSet.find(typeHash(TyIdx.first)) != typeCapSet.end()) {
 				ContinueNextLayer = false;
+                DBG << "found escaped type: " << getInstructionText(TyIdx.first) << " stop\n";
 				break;
 			}
-#endif
 
             PrevLayerTy = TyIdx.first;
             PrevIdx = TyIdx.second;
@@ -1079,9 +1203,8 @@ bool MLTA::getDependentTypes(Type* Ty, int Idx, set<hashidx_t> &PropSet) {
     while (!LT.empty()) {
         hashidx_t TI = LT.front();
         LT.pop_front();
-        if (Visited.find(TI) != Visited.end()) {
+        if (Visited.find(TI) != Visited.end())
             continue;
-        }
         Visited.insert(TI);
 
         for (hashidx_t Prop : typeIdxPropMap[TI.first][TI.second]) {
@@ -1113,4 +1236,19 @@ bool MLTA::getTargetsWithLayerType(size_t TyHash, int Idx,
     }
 
     return true;
+}
+
+
+Value *MLTA::getVTable(Value *V) {
+    if (BitCastOperator *BCO =
+            dyn_cast<BitCastOperator>(V)) {
+        return getVTable(BCO->getOperand(0));
+    }
+    else if (GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
+        return getVTable(GEP->getPointerOperand());
+    }
+    else if (VTableFuncsMap.find(V) != VTableFuncsMap.end())
+        return V;
+    else
+        return NULL;
 }
