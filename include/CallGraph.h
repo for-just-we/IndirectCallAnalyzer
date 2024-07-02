@@ -34,7 +34,7 @@ public:
             : IterativeModulePass(Ctx_, "CallGraph"),
               MLTA(Ctx_) {
 
-        LoadElementsStructNameMap(Ctx->Modules);
+        Ctx->util.LoadElementsStructNameMap(Ctx->Modules);
         MIdx = 0;
     }
 
@@ -43,6 +43,8 @@ public:
     virtual bool doFinalization(llvm::Module *);
 
     virtual bool doModulePass(llvm::Module *);
+
+    virtual void processAliasStruct(llvm::Module *);
 };
 
 

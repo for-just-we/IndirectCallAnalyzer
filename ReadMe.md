@@ -18,6 +18,8 @@ LLVM IR中能够进行类型转换的指令包括：
 
 ## 1.2.LLVM IR特性
 
+### 1.2.1.basic
+
 与source code不同的是，结构体initializer在global域和local域存在不同，以[test9](testcases/mlta/test9/test.c)为例。
 
 其编译后生成的IR如下：
@@ -120,6 +122,29 @@ entry:
 这里用MLTA分析中有非常多trick
 
 - recover type: 在某些function中进行
+
+### 1.2.2.类型系统
+
+
+同时LLVM IR中判断类型相等也不是件容易的事，参考[cn-blog](https://blog.csdn.net/fcsfcsfcs/article/details/119062032)，[原版blog](https://lowlevelbits.org/type-equality-in-llvm/)。
+
+比如，编译完的nginx中发现同一个结构体可能链接后有多个不同的类型
+
+```asm
+%struct.ngx_http_phase_handler_s = type { i64 (%struct.ngx_http_request_s.1418*, %struct.ngx_http_phase_handler_s*)*, i64 (%struct.ngx_http_request_s.1418*)*, i64 }
+%struct.ngx_http_phase_handler_s.2192 = type { i64 (%struct.ngx_http_request_s.2187*, %struct.ngx_http_phase_handler_s.2192*)*, i64 (%struct.ngx_http_request_s.2187*)*, i64 }
+```
+
+这些别名类型的存在严重影响mlta的效率。
+对于这类同名类型我们分为两类：
+
+- 1.在source code中只有1种实现
+
+- 2.在source code中有多种实现
+
+我们定义1个数据结构保存 `struct` 的别名信息：`typeName2newHash`, 将类型名称映射为new hash值。
+
+
 
 
 ## 1.3.Implementation的调整

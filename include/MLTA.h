@@ -29,8 +29,8 @@ protected:
     // Important data structures for type confinement, propagation,
     // and escapes.
     ////////////////////////////////////////////////////////////////
-    DenseMap<size_t, map<int, FuncSet>>typeIdxFuncsMap;
-    map<size_t, map<int, set<hashidx_t>>>typeIdxPropMap;
+    DenseMap<size_t, map<int, FuncSet>> typeIdxFuncsMap;
+    map<size_t, map<int, set<hashidx_t>>> typeIdxPropMap;
     set<size_t> typeEscapeSet;
     // Cap type: We cannot know where the type can be futher
     // propagated to. Do not include idx in the hash
@@ -41,20 +41,20 @@ protected:
     // Other data structures
     ////////////////////////////////////////////////////////////////
     // Cache matched functions for CallInst
-    DenseMap<size_t, FuncSet>MatchedFuncsMap;
-    DenseMap<Value *, FuncSet>VTableFuncsMap;
+    DenseMap<size_t, FuncSet> MatchedFuncsMap;
+    DenseMap<Value *, FuncSet> VTableFuncsMap;
 
-    set<size_t>srcLnHashSet;
-    set<size_t>addrTakenFuncHashSet;
+    set<size_t> srcLnHashSet;
+    set<size_t> addrTakenFuncHashSet;
 
-    map<size_t, set<size_t>>calleesSrcMap;
-    map<size_t, set<size_t>>L1CalleesSrcMap;
+    map<size_t, set<size_t>> calleesSrcMap;
+    map<size_t, set<size_t>> L1CalleesSrcMap;
 
     // Matched icall types -- to avoid repeatation
     DenseMap<size_t, FuncSet> MatchedICallTypeMap;
 
     // Set of target types
-    set<size_t>TTySet;
+    set<size_t> TTySet;
 
     // Functions that are actually stored to variables
     FuncSet StoredFuncs;
@@ -62,9 +62,7 @@ protected:
     FuncSet OutScopeFuncs;
 
     // Alias struct pointer of a general pointer
-    map<Function *, map<Value *, Value *>>AliasStructPtrMap;
-
-
+    map<Function *, map<Value *, Value *>> AliasStructPtrMap;
 
     //
     // Methods
@@ -127,10 +125,10 @@ protected:
 
 public:
     // General pointer types like char * and void *
-    map<Module *, Type *>Int8PtrTy;
+    map<Module*, Type*> Int8PtrTy;
     // long interger type
-    map<Module *, Type *>IntPtrTy;
-    map<Module *, const DataLayout *>DLMap;
+    map<Module*, Type*> IntPtrTy;
+    map<Module*, const DataLayout*> DLMap;
 
     MLTA(GlobalContext *Ctx_) {
         Ctx = Ctx_;

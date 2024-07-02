@@ -7,13 +7,14 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Operator.h>
 #include <regex>
+#include <utility>
 #include "Common.h"
 #include "Config.h"
 
 // Map from struct elements to its name
 static map<string, set<StringRef>> elementsStructNameMap;
 
-bool trimPathSlash(string &path, int slash) {
+bool CommonUtil::trimPathSlash(string &path, int slash) {
     while (slash > 0) {
         path = path.substr(path.find('/') + 1);
         --slash;
@@ -22,7 +23,7 @@ bool trimPathSlash(string &path, int slash) {
     return true;
 }
 
-string getFileName(DILocation *Loc, DISubprogram *SP) {
+string CommonUtil::getFileName(DILocation *Loc, DISubprogram *SP) {
     string FN;
     if (Loc)
         FN = Loc->getFilename().str();
@@ -43,8 +44,35 @@ string getFileName(DILocation *Loc, DISubprogram *SP) {
     return FN;
 }
 
+// ToDo：考虑匿名结构体
+string CommonUtil::getValidStructName(string structName) {
+    // 查找最后一个点的位置
+    size_t lastDotPos = structName.find_last_of('.');
 
-StringRef getCalledFuncName(CallInst *CI) {
+    // 如果 structName 中包含 "anno"，直接返回 structName
+    if (structName.find("anon") != std::string::npos)
+        return structName;
+
+    // 如果没有点，或者点后面不是数字，则直接返回原始字符串
+    if (lastDotPos == std::string::npos || !isdigit(structName[lastDotPos + 1]))
+        return structName;
+
+    // 返回去除数字后缀的字符串
+    return structName.substr(0, lastDotPos);
+}
+
+string CommonUtil::getValidStructName(StructType *STy) {
+    string struct_name = STy->getName().str();
+    string valid_struct_name = getValidStructName(struct_name);
+    if (typeName2newHash.find(valid_struct_name) != typeName2newHash.end()
+        && typeName2newHash[valid_struct_name].size() == 1)
+        struct_name = valid_struct_name;
+    return struct_name;
+}
+
+
+
+StringRef CommonUtil::getCalledFuncName(CallInst *CI) {
     Value *V;
     V = CI->getCalledOperand();
     assert(V);
@@ -65,7 +93,7 @@ StringRef getCalledFuncName(CallInst *CI) {
 }
 
 // 获取指令I的源代码位置信息
-DILocation *getSourceLocation(Instruction *I) {
+DILocation* CommonUtil::getSourceLocation(Instruction *I) {
     if (!I)
         return NULL;
 
@@ -81,7 +109,7 @@ DILocation *getSourceLocation(Instruction *I) {
 }
 
 // 获取函数F的第ArgNo个参数对象
-Argument *getParamByArgNo(Function *F, int8_t ArgNo) {
+Argument* CommonUtil::getParamByArgNo(Function *F, int8_t ArgNo) {
     if (ArgNo >= F->arg_size())
         return NULL;
 
@@ -95,7 +123,7 @@ Argument *getParamByArgNo(Function *F, int8_t ArgNo) {
 }
 
 // 从所有模块加载结构体信息，初始化使用
-void LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules) {
+void CommonUtil::LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules) {
     // 遍历所有的模块
     for (auto M : Modules) {
         // 遍历所有非匿名结构体
@@ -128,7 +156,7 @@ void cleanString(string &str) {
 }
 
 // 计算函数F的has值
-size_t funcHash(Function *F, bool withName) {
+size_t CommonUtil::funcHash(Function *F, bool withName) {
     hash<string> str_hash;
     string output;
 
@@ -150,7 +178,7 @@ size_t funcHash(Function *F, bool withName) {
 
 
 // 获取callsite对应的signature
-size_t callHash(CallInst *CI) {
+size_t CommonUtil::callHash(CallInst *CI) {
     CallBase *CB = dyn_cast<CallBase>(CI);
 
     hash<string> str_hash;
@@ -167,7 +195,7 @@ size_t callHash(CallInst *CI) {
 }
 
 
-string structTyStr(StructType *STy) {
+string CommonUtil::structTyStr(StructType *STy) {
     string ty_str;
     string sig;
     for (auto Ty : STy->elements()) {
@@ -177,7 +205,7 @@ string structTyStr(StructType *STy) {
 }
 
 // 计算结构体类型的hash值
-string structTypeHash(StructType *STy, set<size_t> &HSet) {
+string CommonUtil::structTypeHash(StructType *STy, set<size_t> &HSet) {
     hash<string> str_hash;
     string sig;
     string ty_str;
@@ -186,7 +214,8 @@ string structTypeHash(StructType *STy, set<size_t> &HSet) {
     // FIXME: A few cases may not even have a name
     // 如果不是匿名结构体，直接根据名字计算hash
     if (STy->hasName()) { // 获取该层结构体对应的type name的hash
-        struct_name = STy->getName().str();
+        // struct_name示例struct.ngx_core_module_t，可能以数字后缀结尾
+        struct_name = getValidStructName(STy);
         HSet.insert(str_hash(struct_name));
     }
     // 如果是匿名结构体，根据每个元素的类型计算hash
@@ -205,8 +234,9 @@ string structTypeHash(StructType *STy, set<size_t> &HSet) {
     return struct_name;
 }
 
-// 计算类型hash
-size_t typeHash(Type *Ty) {
+// 计算类型hash,
+// 相比原版mlta，我们对structTypeHash做一些调整，参考https://blog.csdn.net/fcsfcsfcs/article/details/119062032
+size_t CommonUtil::typeHash(Type *Ty) {
     hash<string> str_hash;
     string sig;
     string ty_str;
@@ -215,14 +245,12 @@ size_t typeHash(Type *Ty) {
     if (StructType *STy = dyn_cast<StructType>(Ty)) {
         // TODO: Use more but reliable information
         // FIXME: A few cases may not even have a name
-        if (STy->hasName()) {
-            ty_str = STy->getName().str();
-        }
+        if (STy->hasName())
+            ty_str = getValidStructName(STy);
         else {
             string sstr = structTyStr(STy);
-            if (elementsStructNameMap.find(sstr) != elementsStructNameMap.end()) {
+            if (elementsStructNameMap.find(sstr) != elementsStructNameMap.end())
                 ty_str = elementsStructNameMap[sstr].begin()->str();
-            }
         }
     }
     else {
@@ -235,24 +263,23 @@ size_t typeHash(Type *Ty) {
     return str_hash(ty_str);
 }
 
-
-size_t hashIdxHash(size_t Hs, int Idx) {
+size_t CommonUtil::hashIdxHash(size_t Hs, int Idx) {
     hash<string> str_hash;
     return Hs + str_hash(to_string(Idx));
 }
 
-size_t typeIdxHash(Type *Ty, int Idx) {
+size_t CommonUtil::typeIdxHash(Type *Ty, int Idx) {
     return hashIdxHash(typeHash(Ty), Idx);
 }
 
-size_t strIntHash(string str, int i) {
+size_t CommonUtil::strIntHash(string str, int i) {
     hash<string> str_hash;
     // FIXME: remove pos
     size_t pos = str.rfind("/");
     return str_hash(str.substr(0, pos) + to_string(i));
 }
 
-int64_t getGEPOffset(const Value *V, const DataLayout *DL) {
+int64_t CommonUtil::getGEPOffset(const Value *V, const DataLayout *DL) {
     const GEPOperator *GEP = dyn_cast<GEPOperator>(V);
 
     int64_t offset = 0;

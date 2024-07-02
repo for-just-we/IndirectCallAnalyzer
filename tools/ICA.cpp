@@ -1,3 +1,6 @@
+//
+// Created by prophe cheng on 2024/6/25.
+//
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Bitcode/BitcodeReader.h"
@@ -14,8 +17,6 @@
 #include <iostream>
 #include <string>
 
-
-#include "Analyzer.h"
 #include "CallGraph.h"
 #include "Config.h"
 
@@ -65,7 +66,7 @@ void PrintResults(GlobalContext *GCtx) {
     OP << "\n@@ Total number of final callees: " << totalsize << ".\n";
 
     OP<<"############## Result Statistics ##############\n";
-    //cout<<"# Ave. Number of indirect-call targets: \t"<<std::setprecision(5)<<AveIndirectTargets<<"\n";
+    // cout<<"# Ave. Number of indirect-call targets: \t" << std::setprecision(5) << AveIndirectTargets<<"\n";
     OP<<"# Number of indirect calls: \t\t\t"<<GCtx->IndirectCallInsts.size()<<"\n";
     OP<<"# Number of indirect calls with targets: \t"<<GCtx->NumValidIndirectCalls<<"\n";
     OP<<"# Number of indirect-call targets: \t\t"<<GCtx->NumIndirectCallTargets<<"\n";

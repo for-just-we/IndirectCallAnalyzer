@@ -12,7 +12,6 @@
 #include <unordered_set>
 #include <fstream>
 #include <map>
-#include "Common.h"
 
 using namespace std;
 using namespace llvm;

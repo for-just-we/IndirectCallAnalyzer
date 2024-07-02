@@ -46,10 +46,10 @@ void CallGraphPass::doMLTA(Function *F) {
                 else {
                     // 如果是签名匹配
                     if (ENABLE_SIGMATCH)
-                        *FS = Ctx->sigFuncsMap[callHash(CI)];
+                        *FS = Ctx->sigFuncsMap[Ctx->util.callHash(CI)];
                     // 如果是参数数量匹配
                     else {
-                        size_t CIH = callHash(CI);
+                        size_t CIH = Ctx->util.callHash(CI);
                         if (MatchedICallTypeMap.find(CIH) != MatchedICallTypeMap.end())
                             *FS = MatchedICallTypeMap[CIH];
                         else {
@@ -98,9 +98,9 @@ void CallGraphPass::doMLTA(Function *F) {
 
 // Layered Type Analysis
 bool CallGraphPass::doInitialization(Module *M) {
-    OP<<"#"<<MIdx<<" Initializing: "<<M->getName()<<"\n";
+    OP<< "#" <<MIdx<<" Initializing: "<<M->getName()<<"\n";
 
-    ++ MIdx;
+    ++MIdx;
 
     DLMap[M] = &(M->getDataLayout());
     Int8PtrTy[M] = Type::getInt8PtrTy(M->getContext()); // int8 type id: 15
@@ -108,9 +108,12 @@ bool CallGraphPass::doInitialization(Module *M) {
 
     set<User *>CastSet;
 
-    //
+    // ToDo: 遍历module下所有的结构体，处理别名结构体关系
+    // ToDo: 比如%struct.ngx_http_upstream_peer_t.4391和%struct.ngx_http_upstream_peer_t
+    // 处理同名结构体
+    processAliasStruct(M);
+
     // Iterate and process globals，处理该module内的全局变量
-    //
     for (Module::global_iterator gi = M->global_begin(); gi != M->global_end(); ++gi) {
         GlobalVariable* GV = &*gi;
 
@@ -133,7 +136,7 @@ bool CallGraphPass::doInitialization(Module *M) {
         // NOTE: declaration functions can also have address taken
         if (F.hasAddressTaken()) {
             Ctx->AddressTakenFuncs.insert(&F);
-            size_t FuncHash = funcHash(&F, false);
+            size_t FuncHash = Ctx->util.funcHash(&F, false);
             // 添加FLTA的结果
             // function的hash，用来进行FLTA，后面可能会修改
             Ctx->sigFuncsMap[FuncHash].insert(&F);
@@ -243,7 +246,7 @@ bool CallGraphPass::doModulePass(Module *M) {
     //
     // Process functions
     //
-    for (Module::iterator f = M->begin(), fe = M->end();f != fe; ++f) {
+    for (Module::iterator f = M->begin(), fe = M->end(); f != fe; ++f) {
         Function *F = &*f;
 
         if (F->isDeclaration())
@@ -253,4 +256,26 @@ bool CallGraphPass::doModulePass(Module *M) {
     }
 
     return false;
+}
+
+
+void CallGraphPass::processAliasStruct(llvm::Module* M) {
+    for (auto STy : M->getIdentifiedStructTypes()) {
+        assert(STy->hasName());
+        if (STy->isOpaque()) // 必须有定义，不能只是声明
+            continue;
+
+        string struct_name = Ctx->util.getValidStructName(STy->getName().str());
+        unsigned int elemNum = STy->getNumElements();
+        string id = struct_name + "," + itostr(elemNum);
+
+        if (Ctx->util.typeName2newHash.find(struct_name) == Ctx->util.typeName2newHash.end()) {
+            set<string> keySet;
+            keySet.insert(struct_name);
+            Ctx->util.typeName2newHash[struct_name] = keySet;
+        }
+        else
+            Ctx->util.typeName2newHash[struct_name].insert(struct_name);
+
+    }
 }

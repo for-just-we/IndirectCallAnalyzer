@@ -34,7 +34,7 @@ using namespace llvm;
 //
 // Implementation
 //
-pair<Type *, int> typeidx_c(Type *Ty, int Idx) {
+pair<Type*, int> typeidx_c(Type* Ty, int Idx) {
     return make_pair(Ty, Idx);
 }
 pair<size_t, int> hashidx_c(size_t Hash, int Idx) {
@@ -42,7 +42,7 @@ pair<size_t, int> hashidx_c(size_t Hash, int Idx) {
 }
 
 // 比对两个类型是否相等
-bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2,
+bool MLTA::fuzzyTypeMatch(Type* Ty1, Type* Ty2,
                           Module *M1, Module *M2) {
     // 如果两个类型一样，直接返回true
     if (Ty1 == Ty2)
@@ -67,8 +67,10 @@ bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2,
     }
 
     // 如果都是结构体且属于同一个结构体类型
+    // 修改，不直接比较结构体名字，而是比较结构体hash
     if (Ty1->isStructTy() && Ty2->isStructTy() &&
-        (Ty1->getStructName().equals(Ty2->getStructName())))
+        (Ctx->util.getValidStructName(dyn_cast<StructType>(Ty1)) ==
+                Ctx->util.getValidStructName(dyn_cast<StructType>(Ty2))))
         return true;
     if (Ty1->isIntegerTy() && Ty2->isIntegerTy() &&
         Ty1->getIntegerBitWidth() == Ty2->getIntegerBitWidth())
@@ -89,7 +91,7 @@ void MLTA::findCalleesWithType(CallInst *CI, FuncSet &S) {
     //
     // Performance improvement: cache results for types
     //
-    size_t CIH = callHash(CI);
+    size_t CIH = Ctx->util.callHash(CI);
     if (MatchedFuncsMap.find(CIH) != MatchedFuncsMap.end()) {
         if (!MatchedFuncsMap[CIH].empty())
             S.insert(MatchedFuncsMap[CIH].begin(),
@@ -98,7 +100,7 @@ void MLTA::findCalleesWithType(CallInst *CI, FuncSet &S) {
     }
 
     CallBase *CB = dyn_cast<CallBase>(CI);
-    for (Function *F : Ctx->AddressTakenFuncs) {
+    for (Function *F: Ctx->AddressTakenFuncs) {
         // VarArg （可变参数）
         if (F->getFunctionType()->isVarArg()) {
             // Compare only known args in VarArg.
@@ -111,7 +113,7 @@ void MLTA::findCalleesWithType(CallInst *CI, FuncSet &S) {
             continue;
 
         // Types completely match
-        if (callHash(CI) == funcHash(F)) {
+        if (Ctx->util.callHash(CI) == Ctx->util.funcHash(F)) {
             S.insert(F);
             continue;
         }
@@ -313,7 +315,7 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
                     // FIXME: take it as a confinement instead of a cap
                     if (Ty->isStructTy()) {
                         DBG << "add escape type: " << getTypeInfo(Ty) << "\n";
-                        typeCapSet.insert(typeHash(Ty));
+                        typeCapSet.insert(Ctx->util.typeHash(Ty));
                     }
 
                 }
@@ -339,14 +341,14 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
                     set<size_t> TyHS; // 所有满足当前层次对应的结构体type的hash
                     string type_name = getInstructionText(CTy);
                     if (StructType *STy = dyn_cast<StructType>(CTy))  // 如果父聚合常量是结构体
-                        type_name = structTypeHash(STy, TyHS);
+                        type_name = Ctx->util.structTypeHash(STy, TyHS);
                     else
-                        TyHS.insert(typeHash(CTy)); // 不是结构体类型
+                        TyHS.insert(Ctx->util.typeHash(CTy)); // 不是结构体类型
 
-                    for (auto TyH : TyHS) {// 遍历所有可以和当前层次类型对应上的类型hash
+                    for (auto TyH : TyHS) { // 遍历所有可以和当前层次类型对应上的类型hash
                         typeIdxFuncsMap[TyH][Container.second].insert(FoundF);
                         DBG << Container.second << " field of Type: " << type_name <<
-                        " add function: " << FoundF->getName().str() << "\n";
+                            " add function: " << FoundF->getName().str() << " in initializer\n";
                     }
 
                     Visited_.insert(CV);
@@ -466,7 +468,7 @@ bool MLTA::typeConfineInFunction(Function *F) {
                     if (!CF)
                         continue;
                     // Arg为函数指针对应的形参
-                    if (Argument *Arg = getParamByArgNo(CF, OI->getOperandNo())) { // CF为被调用的函数，这里返回函数指针对应的形参
+                    if (Argument *Arg = Ctx->util.getParamByArgNo(CF, OI->getOperandNo())) { // CF为被调用的函数，这里返回函数指针对应的形参
                         // U为函数CF中使用了该形参的指令
                         // 遍历所有使用形参的指令
                         for (auto U : Arg->users()) {
@@ -708,14 +710,15 @@ void MLTA::propagateType(Value *ToV, Type *FromTy, int Idx) {
     getBaseTypeChain(TyChain, ToV, Complete); // 获取ToV的type chain
     DBG << "From type: " << getInstructionText(FromTy) << "\n";
     DBG << "To Value: " << getInstructionText(ToV) << "\n";
+
     for (auto T : TyChain) {
         // 如果type和From Type匹配
-        if (typeHash(T.first) == typeHash(FromTy) && T.second == Idx)
+        if (Ctx->util.typeHash(T.first) == Ctx->util.typeHash(FromTy) && T.second == Idx)
             continue;
 
-        typeIdxPropMap[typeHash(T.first)][T.second].insert(hashidx_c(typeHash(FromTy), Idx));
-        DBG << "[PROP] " << *(FromTy) << ": " << Idx
-            << "\n\t===> " << *(T.first) << " " << T.second << "\n";
+        typeIdxPropMap[Ctx->util.typeHash(T.first)][T.second].insert(
+                hashidx_c(Ctx->util.typeHash(FromTy), Idx));
+        DBG << "[PROP] " << *(FromTy) << ": " << Idx << "\n\t===> " << *(T.first) << " " << T.second << "\n";
     }
 }
 
@@ -765,7 +768,7 @@ bool MLTA::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete) {
 
     if (!Chain.empty() && !Complete) {
         DBG << "add escape type in get base chain: " << getTypeInfo(Chain.back().first) << "\n";
-        typeCapSet.insert(typeHash(Chain.back().first));
+        typeCapSet.insert(Ctx->util.typeHash(Chain.back().first));
     }
 
     return true;
@@ -851,8 +854,8 @@ void MLTA::escapeType(Value *V) {
     bool Complete = true;
     getBaseTypeChain(TyChain, V, Complete);
     for (auto T : TyChain) {
-        DBG<<"[Escape] Type: " << *(T.first)<< "; Idx: " <<T.second<< "\n";
-        typeEscapeSet.insert(typeIdxHash(T.first, T.second));
+        DBG << "[Escape] Type: " << *(T.first)<< "; Idx: " << T.second<< "\n";
+        typeEscapeSet.insert(Ctx->util.typeIdxHash(T.first, T.second));
     }
 }
 
@@ -869,12 +872,12 @@ void MLTA::confineTargetFunction(Value *V, Function *F) {
     for (auto TI : TyChain) {
         DBG << TI.second << " field of Type: " << getInstructionText(TI.first) <<
             " add function: " << F->getName().str() << "\n";
-        typeIdxFuncsMap[typeHash(TI.first)][TI.second].insert(F);
+        typeIdxFuncsMap[Ctx->util.typeHash(TI.first)][TI.second].insert(F);
     }
     if (!Complete) {
         if (!TyChain.empty()) {
             DBG << "add escape type in confining function : " << getTypeInfo(TyChain.back().first) << "\n";
-            typeCapSet.insert(typeHash(TyChain.back().first));
+            typeCapSet.insert(Ctx->util.typeHash(TyChain.back().first));
         }
         else {
             // ToDo: verify is this necessary.
@@ -1076,10 +1079,10 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
     // 获得FLTA结果
     // 如果是签名匹配
     if (ENABLE_SIGMATCH)
-        FS = Ctx->sigFuncsMap[callHash(CI)];
+        FS = Ctx->sigFuncsMap[Ctx->util.callHash(CI)];
         // 如果是参数数量匹配
     else {
-        size_t CIH = callHash(CI);
+        size_t CIH = Ctx->util.callHash(CI);
         if (MatchedICallTypeMap.find(CIH) != MatchedICallTypeMap.end())
             FS = MatchedICallTypeMap[CIH];
         else {
@@ -1104,6 +1107,12 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
     list<typeidx_t> TyList;
     bool ContinueNextLayer = true;
     DBG << "analyzing call: " << getInstructionText(CI) << "\n";
+
+    auto *Scope = cast<DIScope>(CI->getDebugLoc().getScope());
+    string callsiteFile = Scope->getFilename().str();
+    int line = CI->getDebugLoc().getLine();
+    int col = CI->getDebugLoc().getCol();
+    string content = callsiteFile + ":" + itostr(line) + ":" + itostr(col) + "|";
     while (ContinueNextLayer) {
         // Check conditions
         if (LayerNo >= MAX_TYPE_LAYER)
@@ -1111,7 +1120,7 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
 
         // isNotSupported(CurType)
         // ToDo: verify whether this is necessary
-        if (typeCapSet.find(typeHash(PrevLayerTy)) != typeCapSet.end()) {
+        if (typeCapSet.find(Ctx->util.typeHash(PrevLayerTy)) != typeCapSet.end()) {
             DBG << "found escaped type in outside: " << getInstructionText(PrevLayerTy) << "\n";
             break;
         }
@@ -1121,8 +1130,9 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
         if (TyList.empty())
             break;
 
-        for (typeidx_t TyIdx : TyList)
+        for (typeidx_t TyIdx : TyList) {
             DBG << "type: " << getInstructionText(TyIdx.first) << " idx: " << TyIdx.second << " ---- ";
+        }
         DBG << "\n";
 
         // 如果类型层次是B.a(A).f，那么TyList依次为 (A, f), (B, a)
@@ -1131,9 +1141,17 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
                 break;
             ++LayerNo;
 
-            size_t TyIdxHash = typeIdxHash(TyIdx.first, TyIdx.second);
+            // 如果出现了层次结构体赋值，比如test13中的b.a = a2; 此时B::a并不会confine到function，应该被标记为escaped，但是B::a不是函数指针field。
+            // 因此将B标注为escaped type就有必要。
+            if (typeCapSet.find(Ctx->util.typeHash(TyIdx.first)) != typeCapSet.end()) {
+                ContinueNextLayer = false;
+                DBG << "found escaped type: " << getInstructionText(TyIdx.first) << " stop\n";
+                break;
+            }
+
+            size_t TyIdxHash = Ctx->util.typeIdxHash(TyIdx.first, TyIdx.second);
             // -1 represents all possible fields of a struct
-            size_t TyIdxHash_1 = typeIdxHash(TyIdx.first, -1);
+            size_t TyIdxHash_1 = Ctx->util.typeIdxHash(TyIdx.first, -1);
 
             // Caching for performance
             if (MatchedFuncsMap.find(TyIdxHash) != MatchedFuncsMap.end())
@@ -1148,7 +1166,7 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
 				if (typeEscapeSet.find(TyIdxHash_1) != typeEscapeSet.end())
 					break;
 
-                getTargetsWithLayerType(typeHash(TyIdx.first), TyIdx.second, FS1);
+                getTargetsWithLayerType(Ctx->util.typeHash(TyIdx.first), TyIdx.second, FS1);
                 // Collect targets from dependent types that may propagate
                 // targets to it
                 set<hashidx_t> PropSet;
@@ -1168,14 +1186,6 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
             FS = FS2; // FS = FS & FS1
             CV = NextV;
 
-            // 如果出现了层次结构体赋值，比如test13中的b.a = a2; 此时B::a并不会confine到function，应该被标记为escaped，但是B::a不是函数指针field。
-            // 因此将B标注为escaped type就有必要。
-            if (typeCapSet.find(typeHash(TyIdx.first)) != typeCapSet.end()) {
-				ContinueNextLayer = false;
-                DBG << "found escaped type: " << getInstructionText(TyIdx.first) << " stop\n";
-				break;
-			}
-
             PrevLayerTy = TyIdx.first;
             PrevIdx = TyIdx.second;
         }
@@ -1187,7 +1197,7 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
         Ctx->NumSecondLayerTargets += FS.size();
     }
     else {
-        Ctx->NumFirstLayerTargets += Ctx->sigFuncsMap[callHash(CI)].size();
+        Ctx->NumFirstLayerTargets += Ctx->sigFuncsMap[Ctx->util.callHash(CI)].size();
         Ctx->NumFirstLayerTypeCalls += 1;
     }
 
@@ -1197,7 +1207,7 @@ bool MLTA::findCalleesWithMLTA(CallInst *CI, FuncSet &FS) {
 
 bool MLTA::getDependentTypes(Type* Ty, int Idx, set<hashidx_t> &PropSet) {
     list<hashidx_t> LT;
-    LT.push_back(hashidx_c(typeHash(Ty), Idx));
+    LT.push_back(hashidx_c(Ctx->util.typeHash(Ty), Idx));
     set<hashidx_t> Visited;
 
     while (!LT.empty()) {

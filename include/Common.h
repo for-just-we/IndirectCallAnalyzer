@@ -16,52 +16,19 @@
 #include <bitset>
 #include <chrono>
 #include <set>
+#include <map>
+#include <unordered_map>
+#include <unordered_set>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 using namespace llvm;
 using namespace std;
 
 #define OP llvm::errs()
 #define DBG if (debug_mode) OP
-
-//
-// Common functions
-//
-string getFileName(DILocation *Loc,
-                   DISubprogram *SP=NULL);
-
-StringRef getCalledFuncName(CallInst *CI);
-
-// 获取指令I的源代码位置信息
-DILocation *getSourceLocation(Instruction *I);
-
-// 获取函数F的第ArgNo个参数对象
-Argument *getParamByArgNo(Function *F, int8_t ArgNo);
-
-// 根据函数F的FunctionType (返回类型、参数类型、是否支持可变参数)计算F的hash值
-size_t funcHash(Function *F, bool withName = false);
-
-// 根据callsite对应的FunctionType计算hash
-size_t callHash(CallInst *CI);
-
-// 计算Struct Type的hash值
-string structTypeHash(StructType *STy, set<size_t> &HSet);
-
-size_t typeHash(Type *Ty);
-
-size_t typeIdxHash(Type *Ty, int Idx = -1);
-
-size_t hashIdxHash(size_t Hs, int Idx = -1);
-
-size_t strIntHash(string str, int i);
-
-string structTyStr(StructType *STy);
-
-bool trimPathSlash(string &path, int slash);
-
-int64_t getGEPOffset(const Value *V, const DataLayout *DL);
-
-// 从所有模块加载结构体信息，初始化使用
-void LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules);
 
 
 class Helper {
@@ -93,5 +60,110 @@ public:
         return str;
     }
 };
+
+
+// 常用类型定义
+typedef std::vector<std::pair<llvm::Module*, llvm::StringRef>> ModuleList; // 模块列表类型，每个模块对应一个Module*对象以及一个模块名
+// Mapping module to its file name.
+typedef std::unordered_map<llvm::Module*, llvm::StringRef> ModuleNameMap; // 将模块对象映射为模块名的类型
+// The set of all functions.
+typedef llvm::SmallPtrSet<llvm::Function*, 8> FuncSet; // 函数集合类型
+typedef llvm::SmallPtrSet<llvm::CallInst*, 8> CallInstSet; // Call指令集合类型
+typedef DenseMap<Function*, CallInstSet> CallerMap; // 将Function对象映射为对应的callsite集合
+typedef DenseMap<CallInst *, FuncSet> CalleeMap; // 将Call指令映射为对应的函数集合
+
+
+class CommonUtil {
+public:
+    map<string, set<string>> typeName2newHash;
+    //
+    // Common functions
+    //
+    string getValidStructName(string structName);
+
+    string getValidStructName(StructType* Ty);
+
+    string getFileName(DILocation *Loc, DISubprogram *SP=NULL);
+
+    StringRef getCalledFuncName(CallInst *CI);
+
+    // 获取指令I的源代码位置信息
+    DILocation *getSourceLocation(Instruction *I);
+
+    // 获取函数F的第ArgNo个参数对象
+    Argument *getParamByArgNo(Function *F, int8_t ArgNo);
+
+    // 根据函数F的FunctionType (返回类型、参数类型、是否支持可变参数)计算F的hash值
+    size_t funcHash(Function *F, bool withName = false);
+
+    // 根据callsite对应的FunctionType计算hash
+    size_t callHash(CallInst *CI);
+
+    // 计算Struct Type的hash值
+    string structTypeHash(StructType *STy, set<size_t> &HSet);
+
+    size_t typeHash(Type *Ty);
+
+    size_t typeIdxHash(Type *Ty, int Idx = -1);
+
+    size_t hashIdxHash(size_t Hs, int Idx = -1);
+
+    size_t strIntHash(string str, int i);
+
+    string structTyStr(StructType *STy);
+
+    bool trimPathSlash(string &path, int slash);
+
+    int64_t getGEPOffset(const Value *V, const DataLayout *DL);
+
+    // 从所有模块加载结构体信息，初始化使用
+    void LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules);
+};
+
+
+// 保存中间及最终结果的结构体
+struct GlobalContext {
+    GlobalContext() {}
+
+    // Statistics
+    unsigned NumFunctions = 0;
+    unsigned NumFirstLayerTypeCalls = 0;
+    unsigned NumSecondLayerTypeCalls = 0;
+    unsigned NumSecondLayerTargets = 0;
+    unsigned NumValidIndirectCalls = 0;
+    unsigned NumIndirectCallTargets = 0;
+    unsigned NumFirstLayerTargets = 0;
+
+    // 全局变量，将变量的hash值映射为变量对象，只保存有initializer的全局变量
+    DenseMap<size_t, GlobalVariable*> Globals;
+
+    // 将一个global function的id(uint64_t) 映射到实际Function对象.
+    map<uint64_t, Function*> GlobalFuncMap;
+
+    // address-taken函数集合
+    FuncSet AddressTakenFuncs;
+
+    // 将一个indirect-callsite映射到target function集合，Map a callsite to all potential callee functions.
+    CalleeMap Callees;
+
+    // 将一个function映射到对应的indirect-callsite caller集合.
+    CallerMap Callers;
+
+    // 将一个函数签名映射为对应函数集合s
+    DenseMap<size_t, FuncSet> sigFuncsMap;
+
+    // Indirect call instructions.
+    std::vector<CallInst*> IndirectCallInsts;
+
+    // Modules.
+    ModuleList Modules;
+    ModuleNameMap ModuleMaps;
+    std::set<std::string> InvolvedModules;
+
+    CommonUtil util;
+};
+
+
+
 
 #endif //TYPEDIVE_COMMON_H
