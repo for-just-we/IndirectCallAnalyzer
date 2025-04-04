@@ -17,29 +17,31 @@
 #include <iostream>
 #include <string>
 
-#include "CallGraph.h"
-#include "Config.h"
+#include "Passes/FLTAPass.h"
+#include "Passes/MLTAPass.h"
+#include "Passes/MLTADFPass.h"
+#include "Utils/Config.h"
 
 using namespace llvm;
 using namespace std;
 
 // Command line parameters.
-cl::list<std::string> InputFilenames(
+cl::list<string> InputFilenames(
         cl::Positional,
         cl::OneOrMore,
         cl::desc("<input bitcode files>"));
 
 // 默认采用FLTA
-cl::opt<bool> MLTA(
-        "mlta",
-        cl::desc("Multi-layer type analysis for refining indirect-call targets"),
-        cl::NotHidden, cl::init(false));
+cl::opt<int> AnalysisType(
+        "analysis-type",
+        cl::desc("select which analysis to use: 1 --> FLTA, 2 --> MLTA, 3 --> Data Flow Enhanced MLTA, 4 --> Kelp"),
+        cl::NotHidden, cl::init(1));
 
-// 默认逐个匹配类型而不是比对函数签名
-cl::opt<bool> SIG_MATCH(
-        "sig_match",
-        cl::desc("Use signature match when use FLTA. Default compare argument of each type."),
-        cl::NotHidden, cl::init(false));
+// max_type_layer
+cl::opt<int> MaxTypeLayer(
+        "max-type-layer",
+        cl::desc("Multi-layer type analysis for refining indirect-call targets"),
+        cl::NotHidden, cl::init(10));
 
 cl::opt<bool> DebugMode(
         "debug",
@@ -51,7 +53,7 @@ cl::opt<bool> DebugMode(
 cl::opt<string> OutputFilePath(
         "output-file",
         cl::desc("Output file path, better to use absolute path"),
-        cl::init("results.txt"));
+        cl::init(""));
 
 GlobalContext GlobalCtx;
 
@@ -76,8 +78,8 @@ void PrintResults(GlobalContext *GCtx) {
     OP<<"# Number of one-layer calls: \t\t\t"<<GCtx->NumFirstLayerTypeCalls<<"\n";
     OP<<"# Number of one-layer targets: \t\t\t"<<GCtx->NumFirstLayerTargets<<"\n";
 
-    // 将结果保存到文件
-    std::ofstream outputFile(OutputFilePath);
+    // 根据OutputFilePath决定输出方式
+    std::ostream& output = (OutputFilePath.size() == 0) ? cout : *(new std::ofstream(OutputFilePath));
 
     for (auto &curEle: GCtx->Callees) {
         if (curEle.first->isIndirectCall()) {
@@ -93,10 +95,15 @@ void PrintResults(GlobalContext *GCtx) {
                 content += (func->getName().str() + ",");
             content = content.substr(0, content.size() - 1);
             content += "\n";
-            outputFile << content;
+            output << content;
         }
     }
-    outputFile.close();
+
+    // 如果是文件输出，需要关闭并释放资源
+    if (OutputFilePath.size() != 0) {
+        static_cast<std::ofstream&>(output).close();
+        delete &output;
+    }
 }
 
 
@@ -125,13 +132,22 @@ int main(int argc, char** argv) {
         GlobalCtx.ModuleMaps[Module] = InputFilenames[i];
     }
 
-    ENABLE_MLTA = MLTA;
-    ENABLE_SIGMATCH = SIG_MATCH;
     debug_mode = DebugMode;
+    max_type_layer = MaxTypeLayer;
 
+    CallGraphPass* pass;
     // 进行indirect-call分析
-    CallGraphPass CGPass(&GlobalCtx);
-    CGPass.run(GlobalCtx.Modules);
+    if (AnalysisType == 1)
+        pass = new FLTAPass(&GlobalCtx);
+    else if (AnalysisType == 2)
+        pass = new MLTAPass(&GlobalCtx);
+    else if (AnalysisType == 3)
+        pass = new MLTADFPass(&GlobalCtx);
+    else {
+        cout << "unimplemnted analysis type, break\n";
+        return 0;
+    }
+    pass->run(GlobalCtx.Modules);
 
     // 打印分析结果
     PrintResults(&GlobalCtx);

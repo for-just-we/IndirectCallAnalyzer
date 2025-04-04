@@ -1,24 +1,32 @@
 
 重构了下[mlta](https://github.com/umnsec/mlta/tree/main)，借助mlta熟悉下LLVM中的类型系统
 
-# 1.Implementation of MLTA
+# 1.Basic Usage
 
-## 1.1.Instructions
+编译benchmark： 确保安装LLVM，我们采用的是LLVM 15，编译benchmark时最好添加 `-g -Xclang -no-opaque-pointers -Xclang -disable-O0-optnone`。
+一个是保留debug信息，一个是需要类型指针进行结构体分析，一个是 `mem2reg` 优化需要。
 
-LLVM IR中能够进行类型转换的指令包括：
+编译该project
 
-- BitCast
+```bash
+mkdir build && cd build
+cmake ..
+cmake --build . -j 16
+```
 
-- Store
+运行：`ica -analysis-type=2 xxx.bc`
 
-其中与函数指针类型转换相关的指令还包括：
+| 选项 | 说明 |
+| ---- | ---- |
+| `analysis-type` | 采用的分析算法，`1` 表示用 `FLTA`、`2` 表示用 `MLTA`、`3` 表示加强版 `MLTA`、`4` 表示 `Kelp` |
+| `debug` | 是否输出运行时的debug信息 |
+| `max-type-layer` | MLTA最大的类型匹配层数，默认 `10` |
 
-- PtrToInt
+
+# 2.LLVM Basis
 
 
-## 1.2.LLVM IR特性
-
-### 1.2.1.basic
+## 2.1.basic
 
 与source code不同的是，结构体initializer在global域和local域存在不同，以[test9](testcases/mlta/test9/test.c)为例。
 
@@ -123,7 +131,7 @@ entry:
 
 - recover type: 在某些function中进行
 
-### 1.2.2.类型系统
+## 2.2.类型系统
 
 
 同时LLVM IR中判断类型相等也不是件容易的事，参考[cn-blog](https://blog.csdn.net/fcsfcsfcs/article/details/119062032)，[原版blog](https://lowlevelbits.org/type-equality-in-llvm/)。
@@ -142,21 +150,49 @@ entry:
 
 - 2.在source code中有多种实现
 
-我们定义1个数据结构保存 `struct` 的别名信息：`typeName2newHash`, 将类型名称映射为new hash值。
+我们目前只考虑第一类情况。对于一个类型，如果它们去掉数字后缀后名称一样并且参数数量一样，我们认为是相同类型，并以此为基础进行hash。
+
+## 2.3.编译后结构体变化
+
+参考[TFA paper](https://www.usenix.org/system/files/usenixsecurity24-liu-dinghao-improving.pdf)、[why-a-function-pointer-field-in-a-llvm-ir-struct-is-replaced-by](https://stackoverflow.com/questions/18730620/why-a-function-pointer-field-in-a-llvm-ir-struct-is-replaced-by)、[Function pointer type becomes empty struct](https://lists.llvm.org/pipermail/cfe-dev/2016-November/051601.html)、[Function pointer type becomes empty struct](https://lists.llvm.org/pipermail/cfe-dev/2016-November/051633.html)、[Function pointer type becomes empty struct](https://lists.llvm.org/pipermail/cfe-dev/2016-November/051635.html)。
+编译后结构体field访问和源代码可能对应不上导致MLTA发挥不了作用，TFA的解决思路是通过debug信息恢复原始类型信息，不过这一步我们这里并没有实现。
+
+```cpp
+/* 源代码 */
+struct A {
+ int i;
+ int (*f)(int, struct A*);
+ int (*g)(char, struct A*);
+};
+
+/* 预期对应IR */
+%struct.A = type {i32, i32 (i32, %struct.A*), i32 (i8, %struct.A*)}
+
+/* 实际IR */
+%struct.A = type {i32, {}*, i32 (i8, %struct.A*)}
+```
 
 
+# 3.Implementations
 
 
-## 1.3.Implementation的调整
+## 3.1.MLTA
 
-相对[原版MLTA](https://github.com/umnsec/mlta)，我们在实现上做了一些调整。motivation参考[case study](docs/mlta_case_analysis.md)。
+相对[原版MLTA](https://github.com/umnsec/mlta)，我们在实现上做了一些调整。 motivation参考[case study](docs/mlta_case_analysis.md)。
 
 - 1.我们默认采用逐个比对类型的方式 (`MLTA::findCalleesWithType` 函数) 而不是比对函数签名的方式进行类型比对。
 
-- 2.我们不将函数类型添加进 `typeCapSet` (`MLTA::confineTargetFunction` 函数最后一行)。
+- 2.我们不将函数类型添加进 `typeCapSet` (`MLTAPass::confineTargetFunction` 函数最后一行)。
 
 - 3.当 `store VO, PO` (`*PO = VO`) 时，假如 `VO` 不是常量，我们将 `PO` 涉及到的结构体类型层次添加进 `typeEscapedSet`。
 
-# ToDo
+除了上述3点，我们还注意到原版mlta以下问题：
 
-调整flta的类型匹配策略并添加Kelp支持
+- 1.当结构体类型被cast到 `void*` 或者整数类型时没有考虑
+
+
+针对上面问题，我们的调整如下：
+
+- 在 `MLTA::typePropInFunction` 函数的实现中，分析cast指令时如果识别到 `void` 或者整形指针与 `struct` 指针互相转换，将 `struct` 类型标记为escaped type。
+
+此外，我们添加了一个 `MLTADFPass`，这个简单实现了TFA paper中的数据流分析策略，不过没有实现结构体信息恢复部分。

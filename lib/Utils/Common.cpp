@@ -8,8 +8,8 @@
 #include <llvm/IR/Operator.h>
 #include <regex>
 #include <utility>
-#include "Common.h"
-#include "Config.h"
+#include "Utils/Common.h"
+#include "Utils/Config.h"
 
 // Map from struct elements to its name
 static map<string, set<StringRef>> elementsStructNameMap;
@@ -64,12 +64,8 @@ string CommonUtil::getValidStructName(string structName) {
 string CommonUtil::getValidStructName(StructType *STy) {
     string struct_name = STy->getName().str();
     string valid_struct_name = getValidStructName(struct_name);
-    if (typeName2newHash.find(valid_struct_name) != typeName2newHash.end()
-        && typeName2newHash[valid_struct_name].size() == 1)
-        struct_name = valid_struct_name;
-    return struct_name;
+    return valid_struct_name;
 }
-
 
 
 StringRef CommonUtil::getCalledFuncName(CallInst *CI) {
@@ -109,7 +105,7 @@ DILocation* CommonUtil::getSourceLocation(Instruction *I) {
 }
 
 // 获取函数F的第ArgNo个参数对象
-Argument* CommonUtil::getParamByArgNo(Function *F, int8_t ArgNo) {
+Argument* CommonUtil::getParamByArgNo(Function* F, int8_t ArgNo) {
     if (ArgNo >= F->arg_size())
         return NULL;
 
@@ -204,36 +200,6 @@ string CommonUtil::structTyStr(StructType *STy) {
     return ty_str;
 }
 
-// 计算结构体类型的hash值
-string CommonUtil::structTypeHash(StructType *STy, set<size_t> &HSet) {
-    hash<string> str_hash;
-    string sig;
-    string ty_str;
-    string struct_name;
-    // TODO: Use more but reliable information
-    // FIXME: A few cases may not even have a name
-    // 如果不是匿名结构体，直接根据名字计算hash
-    if (STy->hasName()) { // 获取该层结构体对应的type name的hash
-        // struct_name示例struct.ngx_core_module_t，可能以数字后缀结尾
-        struct_name = getValidStructName(STy);
-        HSet.insert(str_hash(struct_name));
-    }
-    // 如果是匿名结构体，根据每个元素的类型计算hash
-    else {
-        string sstr = structTyStr(STy);
-        struct_name = "Annoymous struct: " + sstr;
-        // 如果在elementsStructNameMap中找到了该匿名结构体的信息，也就是存在实名结构体field结构和该匿名结构体一致
-        if (elementsStructNameMap.find(sstr) != elementsStructNameMap.end()) {
-            for (auto SStr : elementsStructNameMap[sstr]) {
-                ty_str = SStr.str();
-                // 同时添加下实名结构体的hash值
-                HSet.insert(str_hash(ty_str));
-            }
-        }
-    }
-    return struct_name;
-}
-
 // 计算类型hash,
 // 相比原版mlta，我们对structTypeHash做一些调整，参考https://blog.csdn.net/fcsfcsfcs/article/details/119062032
 size_t CommonUtil::typeHash(Type *Ty) {
@@ -245,8 +211,10 @@ size_t CommonUtil::typeHash(Type *Ty) {
     if (StructType *STy = dyn_cast<StructType>(Ty)) {
         // TODO: Use more but reliable information
         // FIXME: A few cases may not even have a name
-        if (STy->hasName())
+        if (STy->hasName()) {
             ty_str = getValidStructName(STy);
+            ty_str += ("," + itostr(STy->getNumElements()));
+        }
         else {
             string sstr = structTyStr(STy);
             if (elementsStructNameMap.find(sstr) != elementsStructNameMap.end())
@@ -301,4 +269,34 @@ int64_t CommonUtil::getGEPOffset(const Value *V, const DataLayout *DL) {
     }
     offset += DL->getIndexedOffsetInType(ptrTy, indexOps);
     return offset;
+}
+
+string getInstructionText(Value* inst) {
+    string instructionText;
+    raw_string_ostream stream(instructionText);
+    inst->print(stream);
+    stream.flush();
+    return instructionText;
+}
+
+string getInstructionText(Type* type) {
+    string instructionText;
+    raw_string_ostream stream(instructionText);
+    type->print(stream);
+    stream.flush();
+    return instructionText;
+}
+
+string getValueInfo(Value* value) {
+    string inst_name;
+    raw_string_ostream rso(inst_name);
+    value->print(rso);
+    return rso.str();
+}
+
+string getTypeInfo(Type* type) {
+    string inst_name;
+    raw_string_ostream rso(inst_name);
+    type->print(rso);
+    return rso.str();
 }

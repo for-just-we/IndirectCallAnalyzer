@@ -1,42 +1,22 @@
 //
-// Created by prophe cheng on 2024/1/8.
+// Created by prophe cheng on 2025/4/4.
 //
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
-#define MAX_LEN 10
-
-typedef void (*fptr_t)(char *, char *);
-struct A { intptr_t handler; };
-struct B { struct A a; }; // B is an outer layer of A
-struct C { struct A a; }; // C is an outer layer of A
-
-void copy_with_check(char *dst, char *src) {
-    if (strlen(src) < MAX_LEN)
-        strcpy(dst, src);
+int add(int a, int b) {
+    return a + b;
 }
 
-void copy_no_check(char *dst, char *src) {
-    strcpy(dst, src);
+
+int fadd(int(*f)(int, int), int a, int b) {
+    return f(a, b);
 }
 
-// Store functions with initializers
-struct B b = { .a = { .handler = (intptr_t)copy_with_check } };
-
-// Store function with store instruction
-struct C c;
-
-void handle_input(char *user_input) {
-    char buf[MAX_LEN];
-
-    ((fptr_t)(b.a.handler))(buf, user_input); // safe
-    ((fptr_t)(c.a.handler))(buf, user_input); // buffer overflow !!
+int ffadd(int(*f)(int, int), int a, int b) {
+    return fadd(f, a, b);
 }
 
-int main(int argc, char **argv) {
-    char* user_input = argv[1];
-    c.a.handler = (intptr_t)copy_no_check;
-    handle_input(user_input);
-    return 0;
+int main() {
+    int a = 1;
+    int b = 2;
+    int c = ffadd(add, 1, 2);
 }

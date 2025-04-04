@@ -27,9 +27,16 @@
 using namespace llvm;
 using namespace std;
 
-#define OP llvm::errs()
+#define OP errs()
 #define DBG if (debug_mode) OP
 
+string getInstructionText(Value* inst);
+
+string getInstructionText(Type* type);
+
+string getValueInfo(Value* value);
+
+string getTypeInfo(Type* type);
 
 class Helper {
 public:
@@ -63,14 +70,14 @@ public:
 
 
 // 常用类型定义
-typedef std::vector<std::pair<llvm::Module*, llvm::StringRef>> ModuleList; // 模块列表类型，每个模块对应一个Module*对象以及一个模块名
+typedef vector<pair<Module*, StringRef>> ModuleList; // 模块列表类型，每个模块对应一个Module*对象以及一个模块名
 // Mapping module to its file name.
-typedef std::unordered_map<llvm::Module*, llvm::StringRef> ModuleNameMap; // 将模块对象映射为模块名的类型
+typedef unordered_map<Module*, StringRef> ModuleNameMap; // 将模块对象映射为模块名的类型
 // The set of all functions.
-typedef llvm::SmallPtrSet<llvm::Function*, 8> FuncSet; // 函数集合类型
-typedef llvm::SmallPtrSet<llvm::CallInst*, 8> CallInstSet; // Call指令集合类型
+typedef SmallPtrSet<Function*, 8> FuncSet; // 函数集合类型
+typedef SmallPtrSet<CallInst*, 8> CallInstSet; // Call指令集合类型
 typedef DenseMap<Function*, CallInstSet> CallerMap; // 将Function对象映射为对应的callsite集合
-typedef DenseMap<CallInst *, FuncSet> CalleeMap; // 将Call指令映射为对应的函数集合
+typedef DenseMap<CallInst*, FuncSet> CalleeMap; // 将Call指令映射为对应的函数集合
 
 
 class CommonUtil {
@@ -99,9 +106,6 @@ public:
     // 根据callsite对应的FunctionType计算hash
     size_t callHash(CallInst *CI);
 
-    // 计算Struct Type的hash值
-    string structTypeHash(StructType *STy, set<size_t> &HSet);
-
     size_t typeHash(Type *Ty);
 
     size_t typeIdxHash(Type *Ty, int Idx = -1);
@@ -119,7 +123,6 @@ public:
     // 从所有模块加载结构体信息，初始化使用
     void LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules);
 };
-
 
 // 保存中间及最终结果的结构体
 struct GlobalContext {
@@ -146,19 +149,19 @@ struct GlobalContext {
     // 将一个indirect-callsite映射到target function集合，Map a callsite to all potential callee functions.
     CalleeMap Callees;
 
-    // 将一个function映射到对应的indirect-callsite caller集合.
+    // 将一个function映射到对应的caller集合.
     CallerMap Callers;
 
     // 将一个函数签名映射为对应函数集合s
     DenseMap<size_t, FuncSet> sigFuncsMap;
 
     // Indirect call instructions.
-    std::vector<CallInst*> IndirectCallInsts;
+    vector<CallInst*> IndirectCallInsts;
 
     // Modules.
     ModuleList Modules;
     ModuleNameMap ModuleMaps;
-    std::set<std::string> InvolvedModules;
+    set<string> InvolvedModules;
 
     CommonUtil util;
 };
