@@ -196,3 +196,14 @@ struct A {
 - 在 `MLTA::typePropInFunction` 函数的实现中，分析cast指令时如果识别到 `void` 或者整形指针与 `struct` 指针互相转换，将 `struct` 类型标记为escaped type。
 
 此外，我们添加了一个 `MLTADFPass`，这个简单实现了TFA paper中的数据流分析策略，不过没有实现结构体信息恢复部分。
+
+
+# 4.Papers
+
+> [[1.FLTA].Jinku Li, Xiaomeng Tong, Fengwei Zhang, and Jianfeng Ma. Fine-cfi: fine-grained control-flow integrity for operating system kernels. IEEE Transactions on Information Forensics and Security, 13(6):1535–1550, 2018.](https://cse.sustech.edu.cn/faculty/~zhangfw/paper/fine-cfi-tifs18.pdf)
+
+> [[2.MLTA].Lu K, Hu H. Where does it go? refining indirect-call targets with multi-layer type analysis[C]//Proceedings of the 2019 ACM SIGSAC Conference on Computer and Communications Security. 2019: 1867-1881.](https://dl.acm.org/doi/pdf/10.1145/3319535.3354244)
+
+> [[3.TFA].Liu D, Ji S, Lu K, et al. Improving {Indirect-Call} Analysis in {LLVM} with Type and {Data-Flow}{Co-Analysis}[C]//33rd USENIX Security Symposium (USENIX Security 24). 2024: 5895-5912.](https://www.usenix.org/system/files/usenixsecurity24-liu-dinghao-improving.pdf)
+
+> [[4.Kelp].Cai Y, Jin Y, Zhang C. Unleashing the Power of Type-Based Call Graph Construction by Using Regional Pointer Information[C]//33nd USENIX Security Symposium (USENIX Security 24). 2024](https://www.usenix.org/system/files/sec23winter-prepub-350-cai.pdf)
