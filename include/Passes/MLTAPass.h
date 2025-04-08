@@ -44,11 +44,11 @@ public:
     ////////////////////////////////////////////////////////////////
     // Target-related basic functions
     ////////////////////////////////////////////////////////////////
-    void processAliasStruct(Module*);
     void confineTargetFunction(Value* V, Function* F);
     bool typeConfineInInitializer(GlobalVariable* GV);
     bool typeConfineInFunction(Function* F);
-    virtual bool typeConfineFromCI(Function* CF, unsigned ArgNo, Function* FF);
+    virtual void typeConfineInStore(StoreInst* SI);
+    virtual void escapeFuncPointer(Value* PO, Instruction* I);
     bool typePropInFunction(Function* F);
 
     void collectAliasStructPtr(Function* F);

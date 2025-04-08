@@ -20,6 +20,7 @@
 #include "Passes/FLTAPass.h"
 #include "Passes/MLTAPass.h"
 #include "Passes/MLTADFPass.h"
+#include "Passes/KelpPass.h"
 #include "Utils/Config.h"
 
 using namespace llvm;
@@ -67,16 +68,18 @@ void PrintResults(GlobalContext *GCtx) {
     int totalsize = 0;
     OP << "\n@@ Total number of final callees: " << totalsize << ".\n";
 
-    OP<<"############## Result Statistics ##############\n";
+    OP << "############## Result Statistics ##############\n";
     // cout<<"# Ave. Number of indirect-call targets: \t" << std::setprecision(5) << AveIndirectTargets<<"\n";
-    OP<<"# Number of indirect calls: \t\t\t"<<GCtx->IndirectCallInsts.size()<<"\n";
-    OP<<"# Number of indirect calls with targets: \t"<<GCtx->NumValidIndirectCalls<<"\n";
-    OP<<"# Number of indirect-call targets: \t\t"<<GCtx->NumIndirectCallTargets<<"\n";
-    OP<<"# Number of address-taken functions: \t\t"<<GCtx->AddressTakenFuncs.size()<<"\n";
-    OP<<"# Number of multi-layer calls: \t\t\t"<<GCtx->NumSecondLayerTypeCalls<<"\n";
-    OP<<"# Number of multi-layer targets: \t\t"<<GCtx->NumSecondLayerTargets<<"\n";
-    OP<<"# Number of one-layer calls: \t\t\t"<<GCtx->NumFirstLayerTypeCalls<<"\n";
-    OP<<"# Number of one-layer targets: \t\t\t"<<GCtx->NumFirstLayerTargets<<"\n";
+    OP << "# Number of indirect calls: \t\t\t" << GCtx->IndirectCallInsts.size() << "\n";
+    OP << "# Number of indirect calls with targets: \t" << GCtx->NumValidIndirectCalls << "\n";
+    OP << "# Number of indirect-call targets: \t\t" << GCtx->NumIndirectCallTargets << "\n";
+    OP << "# Number of address-taken functions: \t\t" << GCtx->AddressTakenFuncs.size() << "\n";
+    OP << "# Number of multi-layer calls: \t\t\t" << GCtx->NumSecondLayerTypeCalls << "\n";
+    OP << "# Number of multi-layer targets: \t\t" << GCtx->NumSecondLayerTargets << "\n";
+    OP << "# Number of one-layer calls: \t\t\t" << GCtx->NumFirstLayerTypeCalls << "\n";
+    OP << "# Number of one-layer targets: \t\t\t" << GCtx->NumFirstLayerTargets << "\n";
+    OP << "# Number of simple indirect calls: \t\t\t" << GCtx->NumSimpleIndCalls << "\n";
+    OP << "# Number of confined functions: \t\t\t" << GCtx->NumConfinedFuncs << "\n";
 
     // 根据OutputFilePath决定输出方式
     std::ostream& output = (OutputFilePath.size() == 0) ? cout : *(new std::ofstream(OutputFilePath));
@@ -143,6 +146,8 @@ int main(int argc, char** argv) {
         pass = new MLTAPass(&GlobalCtx);
     else if (AnalysisType == 3)
         pass = new MLTADFPass(&GlobalCtx);
+    else if (AnalysisType == 4)
+        pass = new KelpPass(&GlobalCtx);
     else {
         cout << "unimplemnted analysis type, break\n";
         return 0;

@@ -58,6 +58,39 @@ void CallGraphPass::run(ModuleList &modules) {
     OP << "[" << ID << "] Done!\n\n";
 }
 
+// first analyze direct calls
+bool CallGraphPass::doInitialization(Module* M) {
+    // resolve direct calls
+    for (Module::iterator f = M->begin(), fe = M->end(); f != fe; ++f) {
+        Function *F = &*f;
+        if (F->isDeclaration())
+            continue;
+        unrollLoops(F);
+        for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
+            // Map callsite to possible callees.
+            if (CallInst *CI = dyn_cast<CallInst>(&*i)) {
+                CallSet.insert(CI);
+                if (CI->isIndirectCall())
+                    continue;
+                Value* CV = CI->getCalledOperand();
+                Function* CF = dyn_cast<Function>(CV);
+                // not InlineAsm
+                if (CF) {
+                    // Call external functions
+                    if (CF->isDeclaration()) {
+                        if (Function *GF = Ctx->GlobalFuncMap[CF->getGUID()])
+                            CF = GF;
+                    }
+
+                    Ctx->Callees[CI].insert(CF);
+                    Ctx->Callers[CF].insert(CI);
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool CallGraphPass::doModulePass(Module *M) {
     ++MIdx;
     //
@@ -75,11 +108,30 @@ bool CallGraphPass::doModulePass(Module *M) {
 
     for (Module::iterator f = M->begin(), fe = M->end(); f != fe; ++f) {
         Function *F = &*f;
-
         if (F->isDeclaration())
             continue;
+        for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
+            if (CallInst* CI = dyn_cast<CallInst>(&*i)) {
+                if (!CI->isIndirectCall())
+                    continue;
+                FuncSet* FS = &Ctx->Callees[CI];
+                analyzeIndCall(CI, FS);
 
-        analyzeFunction(F);
+                for (Function* Callee : *FS)
+                    // OP << "**** solving callee: " << Callee->getName().str() << "\n";
+                    Ctx->Callers[Callee].insert(CI);
+
+                // Save called values for future uses.
+                Ctx->IndirectCallInsts.push_back(CI);
+
+                ICallSet.insert(CI);
+                if (!FS->empty()) {
+                    MatchedICallSet.insert(CI);
+                    Ctx->NumIndirectCallTargets += FS->size();
+                    Ctx->NumValidIndirectCalls++;
+                }
+            }
+        }
     }
 
     return false;
@@ -87,29 +139,6 @@ bool CallGraphPass::doModulePass(Module *M) {
 
 bool CallGraphPass::doFinalization(llvm::Module *M) {
     ++MIdx;
-    if (Ctx->Modules.size() == MIdx) {
-        // Finally map declaration functions to actual functions
-        OP<<"Mapping declaration functions to actual ones...\n";
-        Ctx->NumIndirectCallTargets = 0;
-        for (auto CI: CallSet) {
-            FuncSet FS;
-            for (auto F: Ctx->Callees[CI]) {
-                if (F->isDeclaration()) {
-                    F = Ctx->GlobalFuncMap[F->getGUID()];
-                    if (F) {
-                        FS.insert(F);
-                    }
-                }
-                else
-                    FS.insert(F);
-            }
-            Ctx->Callees[CI] = FS;
-
-            if (CI->isIndirectCall())
-                Ctx->NumIndirectCallTargets += FS.size();
-        }
-
-    }
     return false;
 }
 
@@ -123,7 +152,7 @@ void CallGraphPass::intersectFuncSets(FuncSet &FS1, FuncSet &FS2, FuncSet &FS) {
     }
 }
 
-void CallGraphPass::unrollLoops(Function *F) {
+void CallGraphPass::unrollLoops(Function* F) {
     if (F->isDeclaration())
         return;
 
@@ -152,7 +181,7 @@ void CallGraphPass::unrollLoops(Function *F) {
         }
     }
 
-    for (Loop *LP : LPSet) {
+    for (Loop* LP : LPSet) {
         // Get the header,latch block, exiting block of every loop
         BasicBlock *HeaderB = LP->getHeader();
         unsigned NumBE = LP->getNumBackEdges();
@@ -203,58 +232,6 @@ void CallGraphPass::unrollLoops(Function *F) {
                         continue;
                     else
                         TI->setSuccessor(0, SuccB);
-                }
-            }
-        }
-    }
-}
-
-
-void CallGraphPass::analyzeFunction(Function *F) {
-    unrollLoops(F);
-    for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
-        // Map callsite to possible callees.
-        if (CallInst *CI = dyn_cast<CallInst>(&*i)) {
-            CallSet.insert(CI);
-
-            FuncSet *FS = &Ctx->Callees[CI];
-            Value *CV = CI->getCalledOperand();
-            Function *CF = dyn_cast<Function>(CV);
-
-            // Indirect call
-            if (CI->isIndirectCall()) {
-                analyzeIndCall(CI, FS);
-
-                for (Function *Callee : *FS)
-                    // OP << "**** solving callee: " << Callee->getName().str() << "\n";
-                    Ctx->Callers[Callee].insert(CI);
-
-                // Save called values for future uses.
-                Ctx->IndirectCallInsts.push_back(CI);
-
-                ICallSet.insert(CI);
-                if (!FS->empty()) {
-                    MatchedICallSet.insert(CI);
-                    Ctx->NumIndirectCallTargets += FS->size();
-                    Ctx->NumValidIndirectCalls++;
-                }
-            }
-                // Direct call
-            else {
-                // not InlineAsm
-                if (CF) {
-                    // Call external functions
-                    if (CF->isDeclaration()) {
-                        if (Function *GF = Ctx->GlobalFuncMap[CF->getGUID()])
-                            CF = GF;
-                    }
-
-                    FS->insert(CF);
-                    Ctx->Callers[CF].insert(CI);
-                }
-                    // InlineAsm
-                else {
-                    // TODO: handle InlineAsm functions
                 }
             }
         }

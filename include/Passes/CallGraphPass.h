@@ -48,15 +48,13 @@ public:
     CallGraphPass(GlobalContext *Ctx_, const char *ID_ = NULL): Ctx(Ctx_), ID(ID_), MIdx(0) { }
 
     // Run on each module before iterative pass.
-    virtual bool doInitialization(llvm::Module *M) {
-        return true;
-    }
+    virtual bool doInitialization(Module *M);
 
     // Run on each module after iterative pass.
-    virtual bool doFinalization(llvm::Module *M);
+    virtual bool doFinalization(Module *M);
 
     // Iterative pass.
-    virtual bool doModulePass(llvm::Module *M);
+    virtual bool doModulePass(Module *M);
 
     virtual void analyzeIndCall(CallInst* callInst, FuncSet* FS) = 0;
 
@@ -65,8 +63,6 @@ public:
     void intersectFuncSets(FuncSet &FS1, FuncSet &FS2, FuncSet &FS);
 
     void unrollLoops(Function* F);
-
-    void analyzeFunction(Function* F);
 };
 
 #endif //TYPEDIVE_ANALYZER_H

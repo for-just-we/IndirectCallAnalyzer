@@ -272,6 +272,8 @@ int64_t CommonUtil::getGEPOffset(const Value *V, const DataLayout *DL) {
 }
 
 string getInstructionText(Value* inst) {
+    if (Function* F = dyn_cast<Function>(inst))
+        return F->getName().str();
     string instructionText;
     raw_string_ostream stream(instructionText);
     inst->print(stream);

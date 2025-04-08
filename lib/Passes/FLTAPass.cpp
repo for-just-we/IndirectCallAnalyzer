@@ -4,7 +4,7 @@
 
 #include "Passes/FLTAPass.h"
 
-bool FLTAPass::doInitialization(Module *M) {
+bool FLTAPass::doInitialization(Module* M) {
     OP<< "#" << MIdx <<" Initializing: "<<M->getName()<<"\n";
     ++MIdx;
 

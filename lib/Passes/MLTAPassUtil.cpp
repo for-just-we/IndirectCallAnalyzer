@@ -422,3 +422,7 @@ bool MLTAPass::getDependentTypes(Type* Ty, int Idx, set<hashidx_t> &PropSet) {
     }
     return true;
 }
+
+void MLTAPass::escapeFuncPointer(Value* PO, Instruction* I) {
+    escapeType(PO);
+}

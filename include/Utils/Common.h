@@ -136,6 +136,8 @@ struct GlobalContext {
     unsigned NumValidIndirectCalls = 0;
     unsigned NumIndirectCallTargets = 0;
     unsigned NumFirstLayerTargets = 0;
+    unsigned NumConfinedFuncs = 0;
+    unsigned NumSimpleIndCalls = 0;
 
     // 全局变量，将变量的hash值映射为变量对象，只保存有initializer的全局变量
     DenseMap<size_t, GlobalVariable*> Globals;

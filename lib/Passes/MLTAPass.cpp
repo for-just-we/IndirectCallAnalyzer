@@ -17,10 +17,7 @@ bool MLTAPass::doInitialization(Module* M) {
     IntPtrTy[M] = DLMap[M]->getIntPtrType(M->getContext()); // int type id: 13
 
     set<User*> CastSet;
-    // ToDo: 遍历module下所有的结构体，处理别名结构体关系
-    // ToDo: 比如%struct.ngx_http_upstream_peer_t.4391和%struct.ngx_http_upstream_peer_t
-    // 处理同名结构体
-    processAliasStruct(M);
+
     unsigned dbgNum = 0;
     // Iterate and process globals，处理该module内的全局变量
     for (Module::global_iterator gi = M->global_begin(); gi != M->global_end(); ++gi) {
@@ -207,28 +204,6 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
     }
 }
 
-// 由于链接可能导致多个结构体别名，比如struct Stu和struct Stu1别名，这里把这些别名结构体映射到一起
-// 我们认为同名 + field数量一致那么就是别名结构体
-void MLTAPass::processAliasStruct(Module* M) {
-    for (auto STy : M->getIdentifiedStructTypes()) {
-        assert(STy->hasName());
-        if (STy->isOpaque()) // 必须有定义，不能只是声明
-            continue;
-
-        string struct_name = Ctx->util.getValidStructName(STy->getName().str());
-        unsigned int elemNum = STy->getNumElements();
-        string id = struct_name + "," + itostr(elemNum);
-
-        if (Ctx->util.typeName2newHash.find(struct_name) == Ctx->util.typeName2newHash.end()) {
-            set<string> keySet;
-            keySet.insert(struct_name);
-            Ctx->util.typeName2newHash[struct_name] = keySet;
-        }
-        else
-            Ctx->util.typeName2newHash[struct_name].insert(struct_name);
-
-    }
-}
 
 // 分析全局变量并收集function被分配给了哪些type，分析是field sensitive的
 bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
@@ -426,23 +401,8 @@ bool MLTAPass::typeConfineInFunction(Function *F) {
     for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
         Instruction *I = &*i;
         // 如果是store
-        if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
-            Value* PO = SI->getPointerOperand();
-            Value* VO = SI->getValueOperand();
-
-            // 被store的是个function
-            Function* CF = getBaseFunction(VO->stripPointerCasts());
-            if (!CF)
-                continue;
-            // ToDo: verify this is F or CF
-            if (CF->isIntrinsic())
-                continue;
-
-            // 将指令的文本表示导入字符串
-            string instructionText = getInstructionText(PO);
-            DBG << "confining function: " << CF->getName().str() << " to pointer: " << instructionText << "\n";
-            confineTargetFunction(PO, CF);
-        }
+        if (StoreInst *SI = dyn_cast<StoreInst>(I))
+            typeConfineInStore(SI);
         // 访问所有参数包含了函数指针的函数调用
         else if (CallInst *CI = dyn_cast<CallInst>(I)) {
             // 访问实参
@@ -455,9 +415,6 @@ bool MLTAPass::typeConfineInFunction(Function *F) {
                         continue;
                     // 如果callsite是indirect-call, 不太确定这段代码的效果
                     if (CI->isIndirectCall()) {
-                        string instructionText = getInstructionText(*OI);
-                        DBG << "confining instruction: " << instructionText
-                            << " to function: " << FF->getName().str() << "\n";
                         confineTargetFunction(*OI, FF); // 将实参的类型和F绑定
                         continue;
                     }
@@ -470,31 +427,38 @@ bool MLTAPass::typeConfineInFunction(Function *F) {
                     if (!CF)
                         continue;
                     // Arg为函数指针对应的形参
-                    typeConfineFromCI(CF, OI->getOperandNo(), FF);
-                    // TODO: track into the callee to avoid marking the function type as a cap
+                    if (Argument* Arg = Ctx->util.getParamByArgNo(CF, OI->getOperandNo())) { // CF为被调用的函数，这里返回函数指针对应的形参
+                        // U为函数CF中使用了该形参的指令
+                        // 遍历所有使用形参的指令
+                        for (auto U: Arg->users()) {
+                            // 如果使用形参的是store指令或者bitcast指令
+                            if (StoreInst* _SI = dyn_cast<StoreInst>(U))
+                                confineTargetFunction(_SI->getPointerOperand(), FF);
+                            else if (isa<BitCastOperator>(U))
+                                confineTargetFunction(U, FF);
+                        }
+                    }
                 }
             }
         }
-
     }
 
     return true;
 }
 
+void MLTAPass::typeConfineInStore(StoreInst* SI) {
+    Value* PO = SI->getPointerOperand();
+    Value* VO = SI->getValueOperand();
 
-bool MLTAPass::typeConfineFromCI(Function* CF, const unsigned ArgNo, Function* FF) {
-    if (Argument* Arg = Ctx->util.getParamByArgNo(CF, ArgNo)) { // CF为被调用的函数，这里返回函数指针对应的形参
-        // U为函数CF中使用了该形参的指令
-        // 遍历所有使用形参的指令
-        for (auto U: Arg->users()) {
-            // 如果使用形参的是store指令或者bitcast指令
-            if (StoreInst* SI = dyn_cast<StoreInst>(U))
-                confineTargetFunction(SI->getPointerOperand(), FF);
-            else if (isa<BitCastOperator>(U))
-                confineTargetFunction(U, FF);
-        }
-    }
-    return true;
+    // 被store的是个function
+    Function* CF = getBaseFunction(VO->stripPointerCasts());
+    if (!CF)
+        return;
+    // ToDo: verify this is F or CF
+    if (CF->isIntrinsic())
+        return;
+
+    confineTargetFunction(PO, CF);
 }
 
 // cast有3种情况：
@@ -543,11 +507,8 @@ bool MLTAPass::typePropInFunction(Function *F) {
             set<Value*> Visited;
             nextLayerBaseType(VO, TyList, NextV, Visited);
             if (!TyList.empty()) {
-                for (auto TyIdx : TyList) {
-                    DBG << "processing store instruction: " << getInstructionText(I) << "\n";
-                    // (srcType, srcTypeIdx) -> Type of PO
+                for (auto TyIdx : TyList)
                     propagateType(PO, TyIdx.first, TyIdx.second);
-                }
                 continue;
             }
 
@@ -567,22 +528,21 @@ bool MLTAPass::typePropInFunction(Function *F) {
                     // 从FTy cast到PO
                     propagateType(PO, FTy);
                     // PO takes function pointer variable instead of function constant, should be deemed escaped.
-                    escapeType(PO);
+                    escapeFuncPointer(PO, I);
                     continue;
                 }
                 else
                     continue;
             }
-            DBG << "VO type: " << getInstructionText(VO->getType()) << "\n";
             // 如果被store的变量VO不是指针类型，则跳过
             if (!VO->getType()->isPointerTy())
                 continue;
-                // VO->getType()->isPointerTy()
             else
                 // 如果到这步说明VO不是常量、
                 // General-pointer type for escaping
                 escapeType(PO);
         }
+
 
         // case3: Handle casts
         if (CastInst *CastI = dyn_cast<CastInst>(I))
@@ -597,7 +557,7 @@ bool MLTAPass::typePropInFunction(Function *F) {
         }
     }
 
-    for (User* Cast : CastSet) {
+    for (User* Cast: CastSet) {
         // TODO: we may not need to handle casts as casts are already
         // stripped out in confinement and propagation analysis. Also for
         // a function pointer to propagate, it is supposed to be stored

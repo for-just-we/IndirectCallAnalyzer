@@ -197,8 +197,32 @@ struct A {
 
 此外，我们添加了一个 `MLTADFPass`，这个简单实现了TFA paper中的数据流分析策略，不过没有实现结构体信息恢复部分。
 
+## 3.2.Kelp
 
-# 4.Papers
+相比于paper，当前实现的kelp识别simple function pointer时在backward data flow分析时只考虑下面操作，
+其中 `copy` 操作包括 `bitcast`, `ptrtoint`, `inttoptr` 指令以及 `bitcast` 和 `ptrtoint` operator。
+由于Kelp不考虑memory object，而top-level pointer都是SSA形式的，用 
+
+- `pt(f)` 表示函数指针 `f` 的调用目标，对于 `l: f = fs`, `pt_l(f) = pt(f)`。
+
+- `s(f)` 表示函数指针 `f` 是否为simple function pointer，这里用 `u(f)` 表示 `f` 所有的use点是否不包含memory object操作，如果 `u(f)` 为 `false`，那么 `s(f)` 一定为 `false`。
+
+
+| 操作类型 | 规则 (建立在 `u(f) = true` 基础上) |
+| ---- | ---- |
+| `addr`: `f = &Func` | `pts(f) = { Func }`, `s(f) = true` |
+| `copy`: `f = fs` | `pts(f) += pts(fs)`, `s(f) &= s(fs)` |
+| `phi`: `f = phi(f1, f2)`| `pts(f) += pts(f1) + pts(f2)`, `s(f) &= s(f1) & s(f2)` |
+| `arg`: `func(f, ..)` | for all call: `v = func(fa,..)`, `pts(f) += pts(fa)`, `s(f) &= s(fa)` |
+| `call`: `f = getF(...)` | for return of `getF`, `ret fr`, `pts(f) += pts(fr)`, `s(f) &= s(fr)` |
+
+Todo: 接着改进Kelp分析规则
+
+# 4.潜在bug
+
+如果遇到exit code 139，很有可能是空指针访问。132应该是stack overflow，出现递归。
+
+# 5.Papers
 
 > [[1.FLTA].Jinku Li, Xiaomeng Tong, Fengwei Zhang, and Jianfeng Ma. Fine-cfi: fine-grained control-flow integrity for operating system kernels. IEEE Transactions on Information Forensics and Security, 13(6):1535–1550, 2018.](https://cse.sustech.edu.cn/faculty/~zhangfw/paper/fine-cfi-tifs18.pdf)
 
