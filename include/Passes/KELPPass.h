@@ -7,13 +7,13 @@
 
 #include "MLTADFPass.h"
 
-class KelpPass: public MLTADFPass {
+class KELPPass: public MLTADFPass {
 private:
     set<CallInst*> simpleIndCalls;
     set<Function*> confinedAddrTakenFuncs;
 
 public:
-    KelpPass(GlobalContext *Ctx_): MLTADFPass(Ctx_){
+    KELPPass(GlobalContext *Ctx_): MLTADFPass(Ctx_){
         ID = "kelp analysis";
     }
 

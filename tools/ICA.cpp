@@ -20,7 +20,7 @@
 #include "Passes/FLTAPass.h"
 #include "Passes/MLTAPass.h"
 #include "Passes/MLTADFPass.h"
-#include "Passes/KelpPass.h"
+#include "Passes/KELPPass.h"
 #include "Utils/Config.h"
 
 using namespace llvm;
@@ -109,7 +109,6 @@ void PrintResults(GlobalContext *GCtx) {
     }
 }
 
-
 int main(int argc, char** argv) {
     // Print a stack trace if we signal out.
     sys::PrintStackTraceOnErrorSignal(argv[0]);
@@ -147,7 +146,7 @@ int main(int argc, char** argv) {
     else if (AnalysisType == 3)
         pass = new MLTADFPass(&GlobalCtx);
     else if (AnalysisType == 4)
-        pass = new KelpPass(&GlobalCtx);
+        pass = new KELPPass(&GlobalCtx);
     else {
         cout << "unimplemnted analysis type, break\n";
         return 0;

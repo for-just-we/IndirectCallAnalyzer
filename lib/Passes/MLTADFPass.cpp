@@ -42,8 +42,8 @@ bool MLTADFPass::resolveSFP(Value* User, Value* V, set<Function*>& callees,
         Instruction* VI = dyn_cast<Instruction>(V);
         return resolveSFP(VI, VI->getOperand(0), callees, defUseSites, visitedFuncs);
     }
-        // nested cast could appear in instructions:
-        // for example: %fadd.1 = phi i64 (i32, i32)* [ bitcast (i32 (i32, i32)* @add1 to i64 (i32, i32)*), %if.then ], [ %fadd.0, %if.end ]
+    // nested cast could appear in instructions:
+    // for example: %fadd.1 = phi i64 (i32, i32)* [ bitcast (i32 (i32, i32)* @add1 to i64 (i32, i32)*), %if.then ], [ %fadd.0, %if.end ]
     else if (isa<BitCastOperator>(V) || isa<PtrToIntOperator>(V)) {
         Operator* O = dyn_cast<Operator>(V);
         return resolveSFP(O, O->getOperand(0), callees, defUseSites, visitedFuncs);
@@ -85,14 +85,21 @@ bool MLTADFPass::resolveSFP(Value* User, Value* V, set<Function*>& callees,
         return true;
     }
 
-        // function pointer: f = getF(...), where getF return function pointer.
+    // function pointer: f = getF(...), where getF return function pointer.
     else if (CallInst* CI = dyn_cast<CallInst>(V)) {
         // if function pointer is retrived by indirect call, we conservatively deem it as non-simple function pointer
         if (CI->isIndirectCall())
             return false;
+        // handle recursive call
+        Function* curF = CI->getFunction();
+        visitedFuncs.insert(curF);
         Function* CF = dyn_cast<Function>(CI->getCalledOperand());
         if (!CF)
             return false;
+        if (CF->isDeclaration())
+            return false;
+        if (visitedFuncs.count(CF))
+            return true;
         // back traverse from every return inst of CF
         for (inst_iterator i = inst_begin(CF), e = inst_end(CF); i != e; ++i) {
             Instruction* I = &*i;

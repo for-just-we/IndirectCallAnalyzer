@@ -2,10 +2,10 @@
 // Created by prophe cheng on 2025/4/6.
 //
 #include "llvm/IR/InstIterator.h"
-#include "Passes/KelpPass.h"
+#include "Passes/KELPPass.h"
 
 // 与FLTA和MLTA不同，Kelp这里暂时不把confined address taken function添加金Ctx->AddressTakenFuncs
-bool KelpPass::doInitialization(Module* M) {
+bool KELPPass::doInitialization(Module* M) {
     OP << "#" << MIdx << " Initializing: " <<M->getName()<<"\n";
     ++MIdx;
     CallGraphPass::doInitialization(M);
@@ -15,6 +15,8 @@ bool KelpPass::doInitialization(Module* M) {
 
     set<Function*> potentialConfFuncs;
     set<Value*> totalDefUseSites; // DefUseReachingSites in paper
+
+    OP << "resolving simple function pointer start\n";
 
     // resolve simple indirect calls and their targets
     for (Function &F: *M) {
@@ -43,6 +45,8 @@ bool KelpPass::doInitialization(Module* M) {
         }
     }
 
+    OP << "resolving simple function pointer end\n";
+
     // resolve confined functions
     for (Function* PCF: potentialConfFuncs) {
         bool flag = true;
@@ -62,6 +66,8 @@ bool KelpPass::doInitialization(Module* M) {
             confinedAddrTakenFuncs.insert(PCF);
     }
 
+    OP << "resolving confined functions end\n";
+
     Ctx->NumSimpleIndCalls += simpleIndCalls.size();
     Ctx->NumConfinedFuncs += confinedAddrTakenFuncs.size();
 
@@ -71,6 +77,7 @@ bool KelpPass::doInitialization(Module* M) {
     // ToDo: 比如%struct.ngx_http_upstream_peer_t.4391和%struct.ngx_http_upstream_peer_t
     // 处理同名结构体
     // Iterate and process globals，处理该module内的全局变量
+    unsigned n = 0;
     for (Module::global_iterator gi = M->global_begin(); gi != M->global_end(); ++gi) {
         GlobalVariable* GV = &*gi;
 
@@ -86,6 +93,8 @@ bool KelpPass::doInitialization(Module* M) {
             typeConfineInInitializer(GV);
         }
     }
+
+    OP << "confine global variable done\n";
 
     // Iterate functions and instructions
     for (Function &F : *M) {
@@ -151,14 +160,14 @@ bool KelpPass::doInitialization(Module* M) {
 }
 
 // add confined functions to address-taken function set
-bool KelpPass::doFinalization(Module *M) {
+bool KELPPass::doFinalization(Module *M) {
     Ctx->AddressTakenFuncs.insert(confinedAddrTakenFuncs.begin(), confinedAddrTakenFuncs.end());
     CallGraphPass::doFinalization(M);
     return false;
 }
 
 // resolve complex indirect calls
-void KelpPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
+void KELPPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
     if (simpleIndCalls.count(CI)) {
         FS->insert(Ctx->Callees[CI].begin(), Ctx->Callees[CI].end());
         return;
