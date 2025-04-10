@@ -41,6 +41,7 @@ public:
     map<Module*, const DataLayout*> DLMap;
     set<CallInst*> CallSet;
     set<CallInst*> ICallSet;
+    set<CallInst*> VCallSet;
     set<CallInst*> MatchedICallSet;
 
     int MIdx;
@@ -63,6 +64,8 @@ public:
     void intersectFuncSets(FuncSet &FS1, FuncSet &FS2, FuncSet &FS);
 
     void unrollLoops(Function* F);
+
+    bool isVirtualCall(CallInst* CI);
 };
 
 #endif //TYPEDIVE_ANALYZER_H

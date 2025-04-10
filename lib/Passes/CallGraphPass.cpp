@@ -114,6 +114,11 @@ bool CallGraphPass::doModulePass(Module *M) {
             if (CallInst* CI = dyn_cast<CallInst>(&*i)) {
                 if (!CI->isIndirectCall())
                     continue;
+                // skip virtual call
+                if (isVirtualCall(CI)) {
+                    VCallSet.insert(CI);
+                    continue;
+                }
                 FuncSet* FS = &Ctx->Callees[CI];
                 analyzeIndCall(CI, FS);
 
@@ -134,6 +139,7 @@ bool CallGraphPass::doModulePass(Module *M) {
         }
     }
 
+    Ctx->NumVirtualCall += VCallSet.size();
     return false;
 }
 
@@ -236,4 +242,30 @@ void CallGraphPass::unrollLoops(Function* F) {
             }
         }
     }
+}
+
+
+bool CallGraphPass::isVirtualCall(CallInst* CI) {
+    // the callsite must be an indirect one with at least one argument (this
+    // ptr)
+    if (CI->getCalledFunction() != nullptr || CI->arg_empty())
+        return false;
+
+    // the first argument (this pointer) must be a pointer type and must be a
+    // class name
+    if (CI->getArgOperand(0)->getType()->isPointerTy() == false)
+        return false;
+
+    const Value* vfunc = CI->getCalledOperand();
+    if (const LoadInst* vfuncloadinst = dyn_cast<LoadInst>(vfunc)) {
+        const Value* vfuncptr = vfuncloadinst->getPointerOperand();
+        if (const GetElementPtrInst* vfuncptrgepinst = dyn_cast<GetElementPtrInst>(vfuncptr)) {
+            if (vfuncptrgepinst->getNumIndices() != 1)
+                return false;
+            const Value* vtbl = vfuncptrgepinst->getPointerOperand();
+            if (isa<LoadInst>(vtbl))
+                return true;
+        }
+    }
+    return false;
 }

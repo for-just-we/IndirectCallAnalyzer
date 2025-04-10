@@ -70,6 +70,7 @@ void PrintResults(GlobalContext *GCtx) {
 
     OP << "############## Result Statistics ##############\n";
     // cout<<"# Ave. Number of indirect-call targets: \t" << std::setprecision(5) << AveIndirectTargets<<"\n";
+    OP << "# Number of virtual calls: \t\t\t" << GCtx->NumVirtualCall << "\n";
     OP << "# Number of indirect calls: \t\t\t" << GCtx->IndirectCallInsts.size() << "\n";
     OP << "# Number of indirect calls with targets: \t" << GCtx->NumValidIndirectCalls << "\n";
     OP << "# Number of indirect-call targets: \t\t" << GCtx->NumIndirectCallTargets << "\n";

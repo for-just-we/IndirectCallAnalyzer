@@ -82,7 +82,6 @@ typedef DenseMap<CallInst*, FuncSet> CalleeMap; // 将Call指令映射为对应�
 
 class CommonUtil {
 public:
-    map<string, set<string>> typeName2newHash;
     //
     // Common functions
     //
@@ -129,6 +128,7 @@ struct GlobalContext {
     GlobalContext() {}
 
     // Statistics
+    unsigned NumVirtualCall = 0;
     unsigned NumFunctions = 0;
     unsigned NumFirstLayerTypeCalls = 0;
     unsigned NumSecondLayerTypeCalls = 0;
