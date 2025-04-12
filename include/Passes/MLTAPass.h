@@ -37,9 +37,9 @@ public:
         Ctx->util.LoadElementsStructNameMap(Ctx->Modules);
     }
 
-    virtual void analyzeIndCall(CallInst* callInst, FuncSet* FS) override;
+    void analyzeIndCall(CallInst* callInst, FuncSet* FS) override;
 
-    virtual bool doInitialization(Module*) override;
+    bool doInitialization(Module*) override;
 
     ////////////////////////////////////////////////////////////////
     // Target-related basic functions

@@ -20,9 +20,9 @@ public:
 
     void findCalleesWithType(CallInst*, FuncSet&);
 
-    virtual void analyzeIndCall(CallInst* CI, FuncSet* FS) override;
+    void analyzeIndCall(CallInst* CI, FuncSet* FS) override;
 
-    virtual bool doInitialization(Module *M) override;
+    bool doInitialization(Module *M) override;
 };
 
 #endif //INDIRECTCALLANALYZER_FLTAPASS_H

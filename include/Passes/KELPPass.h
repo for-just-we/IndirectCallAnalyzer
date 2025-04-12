@@ -17,11 +17,11 @@ public:
         ID = "kelp analysis";
     }
 
-    virtual bool doInitialization(Module*) override;
+    bool doInitialization(Module*) override;
 
-    virtual bool doFinalization(Module *M) override;
+    bool doFinalization(Module *M) override;
 
-    virtual void analyzeIndCall(CallInst* CI, FuncSet* FS) override;
+    void analyzeIndCall(CallInst* CI, FuncSet* FS) override;
 };
 
 #endif //INDIRECTCALLANALYZER_KELPPASS_H
