@@ -66,6 +66,8 @@ public:
     void unrollLoops(Function* F);
 
     bool isVirtualCall(CallInst* CI);
+
+    bool isVirtualFunction(Function* F);
 };
 
 #endif //TYPEDIVE_ANALYZER_H

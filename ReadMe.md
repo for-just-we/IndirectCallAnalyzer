@@ -4,7 +4,7 @@
 # 1.Basic Usage
 
 编译benchmark：确保安装LLVM，我们采用的是LLVM 15，编译benchmark时最好添加 `-g -Xclang -no-opaque-pointers -Xclang -disable-O0-optnone`。
-一个是保留debug信息，一个是需要类型指针进行结构体分析，一个是 `mem2reg` 优化需要。目前暂时跳过virtual call分析，关于virtual call的识别我们采用和SVF一样的策略。
+一个是保留debug信息，一个是需要类型指针进行结构体分析，一个是 `mem2reg` 优化需要。
 
 编译该project
 
@@ -218,6 +218,32 @@ struct A {
 
 Todo: 接着改进KELP分析规则，目前的KELP还没考虑函数指针数组、结构体变量、全局变量等复杂场景，以后会进一步优化分析规则。
 
+## 3.3.Virtual Call
+
+目前暂时跳过virtual call分析，关于virtual call的识别我们对SVF的策略进行了改进。
+具体来说，SVF的策略基于以下pattern识别virtual call
+
+```asm
+%vtable = load this
+%vfn = getelementptr %vtable, idx
+%x = load %vfn
+call %x (this)
+```
+
+一个示例是
+
+```asm
+%vtable = load void (%class.Base*)**, void (%class.Base*)*** %12, align 8
+%vfn = getelementptr inbounds void (%class.Base*)*, void (%class.Base*)** %vtable, i64 0
+%13 = load void (%class.Base*)*, void (%class.Base*)** %vfn, align 8
+call void %13(%class.Base* noundef nonnull align 8 dereferenceable(16) %11)
+```
+
+这会将 `log_handler[i](r);` 这种模式的间接调用识别为virtual call。我们在此基础上对 `%vtable = load this` 加了一个规则。
+就是判定 `%vtable` 对应的 `Value` 的 `name` 中是否包含 `vtable` 字符串，包括那么是virtual call，反之不是。
+不过这可能需要编译时添加选项 `fno-discard-value names`。
+除此之外也尝试过其它策略，但效果不是很好。
+
 # 4.潜在bug
 
 如果遇到exit code 139，很有可能是空指针访问。132应该是stack overflow，出现递归。
@@ -242,7 +268,7 @@ Todo: 接着改进KELP分析规则，目前的KELP还没考虑函数指针数组
 | php-8.3.13 | 900 | 1137 | 47 | 87 | 4654 |
 | redis-7.4.1 | 48 | 378 | 3 | 7 | 741 |
 | ruby-3.3.6 | 84 | 395 | 104 | 213 | 4137 |
-| teeworlds-0.7.5 | 59 | 28 | 3 | 2 | 877 |
+| teeworlds-0.7.5 | 59 | 28 | 3 | 2 | 48 |
 | tmux-3.5 | 22 | 59 | 7 | 6 | 653 |
 | vim-9.1.08 | 937 | 97 | 11 | 14 | 1453 |
 | wine-9.22 | 1 | 0 | 14 | 11 | 17 |

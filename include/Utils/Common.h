@@ -27,6 +27,9 @@
 using namespace llvm;
 using namespace std;
 
+const string vtblLabelBeforeDemangle = "_ZTV";
+const string znLabel = "_ZN";
+
 #define OP errs()
 #define DBG if (debug_mode) OP
 

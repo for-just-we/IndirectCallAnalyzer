@@ -100,7 +100,7 @@ bool KELPPass::doInitialization(Module* M) {
     for (Function &F : *M) {
         // Collect address-taken functions.
         // NOTE: declaration functions can also have address taken
-        if (F.hasAddressTaken() && !confinedAddrTakenFuncs.count(&F)) {
+        if (F.hasAddressTaken() && !isVirtualFunction(&F) && !confinedAddrTakenFuncs.count(&F)) {
             Ctx->AddressTakenFuncs.insert(&F);
             size_t FuncHash = Ctx->util.funcHash(&F, false);
             // 添加FLTA的结果

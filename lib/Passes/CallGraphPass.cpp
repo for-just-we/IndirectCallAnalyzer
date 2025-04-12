@@ -263,9 +263,16 @@ bool CallGraphPass::isVirtualCall(CallInst* CI) {
             if (vfuncptrgepinst->getNumIndices() != 1)
                 return false;
             const Value* vtbl = vfuncptrgepinst->getPointerOperand();
-            if (isa<LoadInst>(vtbl))
+            if (isa<LoadInst>(vtbl) && vtbl->getName().count("vtable"))
                 return true;
         }
     }
+    return false;
+}
+
+
+bool CallGraphPass::isVirtualFunction(Function* F) {
+    if (F->getName().startswith(znLabel))
+        return true;
     return false;
 }
