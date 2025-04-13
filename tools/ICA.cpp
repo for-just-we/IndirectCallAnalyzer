@@ -83,7 +83,9 @@ void PrintResults(GlobalContext *GCtx) {
     OP << "# Number of confined functions: \t\t\t" << GCtx->NumConfinedFuncs << "\n";
 
     // 根据OutputFilePath决定输出方式
-    std::ostream& output = (OutputFilePath.size() == 0) ? cout : *(new std::ofstream(OutputFilePath));
+    if (OutputFilePath.size() == 0)
+        return;
+    ostream& output = (OutputFilePath == "cout") ? cout : *(new std::ofstream(OutputFilePath));
 
     for (auto &curEle: GCtx->Callees) {
         if (curEle.first->isIndirectCall()) {

@@ -18,7 +18,6 @@ bool MLTAPass::doInitialization(Module* M) {
 
     set<User*> CastSet;
 
-    unsigned dbgNum = 0;
     // Iterate and process globals，处理该module内的全局变量
     for (Module::global_iterator gi = M->global_begin(); gi != M->global_end(); ++gi) {
         GlobalVariable* GV = &*gi;
@@ -229,7 +228,6 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
         // 如果该聚合常量访问过，跳过
         if (Visited.find(U) != Visited.end())
             continue;
-
         Visited.insert(U);
         // 获取聚合常量的类型
         Type* UTy = U->getType();
@@ -273,7 +271,12 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
                     // 有可能是case4，指向其它全局变量的指针
                 else {
                     User* OU = dyn_cast<User>(PIO->getOperand(0)); // 如果指针指向聚合常量
-                    LU.push_back(OU);
+                    if (isa<GlobalVariable>(PIO->getOperand(0))) {
+                        if (PIO->getOperand(0)->getType()->isStructTy())
+                            typeCapSet.insert(Ctx->util.typeHash(U->getType()));
+                    }
+                    else
+                        LU.push_back(OU);
                 }
             }
             // case3，将函数指针cast到void*或者char*类型
@@ -286,7 +289,13 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
                 else {
                     // 获取source操作数，有可能是case4，指向其它复杂数据类型全局变量的指针
                     User *OU = dyn_cast<User>(CO->getOperand(0));
-                    LU.push_back(OU);
+                    // 如果引用到了别的全局变量，直接退出
+                    if (isa<GlobalVariable>(CO->getOperand(0))) {
+                        if (CO->getOperand(0)->getType()->isStructTy())
+                            typeCapSet.insert(Ctx->util.typeHash(U->getType()));
+                    }
+                    else
+                        LU.push_back(OU);
                 }
             }
             // Case 3: a reference (i.e., pointer) of a composite-type
@@ -325,7 +334,6 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
                 // it, so do not apply MLTA against them
                 if (GV->getName() != "llvm.compiler.used")
                     StoredFuncs.insert(FoundF);
-
                 // Add the function type to all containers
                 Value* CV = O;
                 set<Value *> Visited_; // to avoid loop

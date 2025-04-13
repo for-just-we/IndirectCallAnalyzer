@@ -14,14 +14,14 @@ cmake ..
 cmake --build . -j 16
 ```
 
-运行：`ica -analysis-type=2 xxx.bc`
+运行：`ica -output-file=cout -analysis-type=2 xxx.bc`
 
 | 选项 | 说明 |
 | ---- | ---- |
 | `analysis-type` | 采用的分析算法，`1` 表示用 `FLTA`、`2` 表示用 `MLTA`、`3` 表示加强版 `MLTA`、`4` 表示 `Kelp` |
 | `debug` | 是否输出运行时的debug信息 |
 | `max-type-layer` | MLTA最大的类型匹配层数，默认 `10` |
-
+| `output-file` | 间接调用分析结果输出的文件，没有默认不输出每个icall的target set，如果是 `cout` 那么用 `stdout` 输出，反之输出到指定文件。 |
 
 # 2.LLVM Basis
 
@@ -194,6 +194,9 @@ struct A {
 针对上面问题，我们的调整如下：
 
 - 在 `MLTA::typePropInFunction` 函数的实现中，分析cast指令时如果识别到 `void` 或者整形指针与 `struct` 指针互相转换，将 `struct` 类型标记为escaped type。
+
+除此之外，我们发现全局变量的 `initializer` 中存在 `g1 = { bitcast g2, ... }`，而之前的implementation没有考虑到 `bitcast` 和 `ptrtoint` 嵌套全局变量的情况。
+碰到全局变量时会展开分析，造成递归分析的开销。因此我们在之前的implementation上补充了对 `bitcast` 和 `ptrtoint` 出现全局变量的处理。
 
 此外，我们添加了一个 `MLTADFPass`，这个简单实现了TFA paper中的数据流分析策略，不过没有实现结构体信息恢复部分。
 
