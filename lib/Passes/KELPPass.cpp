@@ -43,6 +43,28 @@ bool KELPPass::doInitialization(Module* M) {
                 }
             }
         }
+
+        // resolve confined function with pure sys API call.
+        if (!F.hasAddressTaken() || potentialConfFuncs.count(&F))
+            continue;
+        bool flag = true;
+        for (User* U : F.users()) {
+            if (CallInst* CI = dyn_cast<CallInst>(U)) {
+                if (!CI->isIndirectCall() &&
+                    CI->getCalledFunction() &&
+                    CI->getCalledFunction()->isDeclaration() &&
+                    sysAPIs.count(CI->getCalledFunction()->getName().str()) &&
+                    &F == CI->getArgOperand(sysAPIs[CI->getCalledFunction()->getName().str()]))
+                    continue;
+                flag = false;
+            }
+            else
+                flag = false;
+            break;
+        }
+        // all system API usage
+        if (flag)
+            confinedAddrTakenFuncs.insert(&F);
     }
 
     OP << "resolving simple function pointer end\n";
@@ -77,7 +99,6 @@ bool KELPPass::doInitialization(Module* M) {
     // ToDo: 比如%struct.ngx_http_upstream_peer_t.4391和%struct.ngx_http_upstream_peer_t
     // 处理同名结构体
     // Iterate and process globals，处理该module内的全局变量
-    unsigned n = 0;
     for (Module::global_iterator gi = M->global_begin(); gi != M->global_end(); ++gi) {
         GlobalVariable* GV = &*gi;
 

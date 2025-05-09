@@ -11,6 +11,13 @@ class KELPPass: public MLTADFPass {
 private:
     set<CallInst*> simpleIndCalls;
     set<Function*> confinedAddrTakenFuncs;
+    map<string, int> sysAPIs = {
+            {"pthread_create", 2},
+            {"thread", 0},
+            {"signal", 1},
+            {"qsort", 2},
+            {"bsearch", 2},
+    };
 
 public:
     KELPPass(GlobalContext *Ctx_): MLTADFPass(Ctx_){

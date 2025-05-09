@@ -221,6 +221,22 @@ struct A {
 
 Todo: 接着改进KELP分析规则，目前的KELP还没考虑函数指针数组、结构体变量、全局变量等复杂场景，以后会进一步优化分析规则。
 
+**细节优化**
+
+data flow回溯的时候除了 `copy` 和函数调用意外，function pointer可能还会遇到条件判断。这种情况我们也进一步处理。
+
+```cpp
+if (cb)
+   cb(arg);
+```
+
+对于系统调用传入的函数指针 (下面的 `nni_plat_thr_main`)，由于通常找不到对应的simple function pointer，这里我们增加一个判断：
+只要一个address-taken function F的所有user都是对应系统API的对应函数指针参数，则是confined function。
+
+```cpp
+pthread_create(&thr->tid, &nni_thrattr, nni_plat_thr_main, thr);
+```
+
 ## 3.3.Virtual Call
 
 目前暂时跳过virtual call分析，关于virtual call的识别我们对SVF的策略进行了改进。

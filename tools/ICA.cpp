@@ -87,12 +87,13 @@ void PrintResults(GlobalContext *GCtx) {
         return;
     ostream& output = (OutputFilePath == "cout") ? cout : *(new std::ofstream(OutputFilePath));
 
+    output << "------------- indirect-call analysis results: ---------------------------\n";
     for (auto &curEle: GCtx->Callees) {
         if (curEle.first->isIndirectCall()) {
             totalsize += curEle.second.size();
             FuncSet funcs = curEle.second;
-
             auto *Scope = cast<DIScope>(curEle.first->getDebugLoc().getScope());
+
             string callsiteFile = Scope->getFilename().str();
             int line = curEle.first->getDebugLoc().getLine();
             int col = curEle.first->getDebugLoc().getCol();
@@ -106,7 +107,7 @@ void PrintResults(GlobalContext *GCtx) {
     }
 
     // 如果是文件输出，需要关闭并释放资源
-    if (OutputFilePath.size() != 0) {
+    if (OutputFilePath.size() != 0 && OutputFilePath != "cout") {
         static_cast<std::ofstream&>(output).close();
         delete &output;
     }

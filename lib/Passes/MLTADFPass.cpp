@@ -126,10 +126,13 @@ bool MLTADFPass::justifyUsers(Value* value, Value* curUser) {
     for (User* user: value->users()) {
         if (user == curUser)
             continue;
-            // if function pointer: f is used in CallInst, it is either call: f(xxx) or pass arguments f1(f,...). This is OK
+        // if function pointer: f is used in CallInst, it is either call: f(xxx) or pass arguments f1(f,...). This is OK
         else if (isa<CallInst>(user))
             continue;
-            // function pointer f is not allowed to data flow to other values
+        // if function pointer: f is used in cmp, like if (f) { ... }
+        else if (isa<CmpInst>(user))
+            continue;
+        // function pointer f is not allowed to data flow to other values
         else
             return false;
     }
