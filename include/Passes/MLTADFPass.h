@@ -24,7 +24,7 @@ public:
     // resolve simple function pointer: v = f(a1, ...).
     // I: v = f(...), V: f, callees: potential targets, return value: whether this is simple indirect-call
     // The last argument is used to process recursive call
-    bool resolveSFP(Value* User, Value* V, set<Function*>& callees, set<Value*>& defUseSites,
+    virtual bool resolveSFP(Value* User, Value* V, set<Function*>& callees, set<Value*>& defUseSites,
                     set<Function*>& visitedFuncs);
 
     bool justifyUsers(Value* value, Value* curUser);

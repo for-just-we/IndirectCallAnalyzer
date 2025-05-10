@@ -34,6 +34,14 @@ bool MLTADFPass::resolveSFP(Value* User, Value* V, set<Function*>& callees,
                           set<Value*>& defUseSites, set<Function*>& visitedFuncs) {
     if (!V)
         return true;
+
+    // first if this is function then we don't need justify its user
+    if (Function* CF = dyn_cast<Function>(V)) {
+        callees.insert(CF);
+        defUseSites.insert(User);
+        return true;
+    }
+
     if (!justifyUsers(V, User))
         return false;
 
@@ -111,11 +119,6 @@ bool MLTADFPass::resolveSFP(Value* User, Value* V, set<Function*>& callees,
         return true;
     }
 
-    else if (Function* CF = dyn_cast<Function>(V)) {
-        callees.insert(CF);
-        defUseSites.insert(User);
-        return true;
-    }
         // encounter instruction such as: load, store.
         // Conservatively deem it as non-simple indirect call
     else

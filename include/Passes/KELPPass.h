@@ -11,6 +11,7 @@ class KELPPass: public MLTADFPass {
 private:
     set<CallInst*> simpleIndCalls;
     set<Function*> confinedAddrTakenFuncs;
+    map<GlobalVariable*, set<Function*>> confinedGlobs2Funcs;
     map<string, int> sysAPIs = {
             {"pthread_create", 2},
             {"thread", 0},
@@ -29,6 +30,11 @@ public:
     bool doFinalization(Module *M) override;
 
     void analyzeIndCall(CallInst* CI, FuncSet* FS) override;
+
+    bool forwardAnalyze(Value* V);
+
+    bool resolveSFP(Value* User, Value* V, set<Function*>& callees, set<Value*>& defUseSites,
+                    set<Function*>& visitedFuncs) override;
 };
 
 #endif //INDIRECTCALLANALYZER_KELPPASS_H

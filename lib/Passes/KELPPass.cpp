@@ -16,8 +16,55 @@ bool KELPPass::doInitialization(Module* M) {
     set<Function*> potentialConfFuncs;
     set<Value*> totalDefUseSites; // DefUseReachingSites in paper
 
-    OP << "resolving simple function pointer start\n";
+    OP << "resolving confined global variables\n";
+    for (Module::global_iterator gi = M->global_begin(); gi != M->global_end(); ++gi) {
+        GlobalVariable* GV = &*gi;
+        if (!(GV->getType()->isPointerTy() && GV->getType()->getNonOpaquePointerElementType()->isPointerTy() &&
+            GV->getType()->getNonOpaquePointerElementType()->getNonOpaquePointerElementType()->isFunctionTy()))
+            continue;
 
+        set<Value*> globDefUseSites;
+        set<Function*> referedFuncs;
+        if (GV->hasInitializer()) {
+            if (Function* RF = dyn_cast<Function>(GV->getInitializer())) {
+                referedFuncs.insert(RF);
+                globDefUseSites.insert(GV->getInitializer());
+            }
+        }
+
+        // check all users of the global variable. It should not propagate to memory object.
+        bool flag = true;
+        for (User* U: GV->users()) {
+            // store inst: *g = func;
+            if (StoreInst* SGI = dyn_cast<StoreInst>(U)) {
+                Function* SF = dyn_cast<Function>(SGI->getValueOperand());
+                if (SF) {
+                    globDefUseSites.insert(SGI);
+                    referedFuncs.insert(SF);
+                }
+            }
+
+            // v = *g;
+            else if (LoadInst* LGI = dyn_cast<LoadInst>(U)) {
+                if (!forwardAnalyze(LGI)) {
+                    flag = false;
+                    break;
+                }
+            }
+
+            else {
+                flag = false;
+                break;
+            }
+        }
+        // confined global variables
+        if (flag) {
+            confinedGlobs2Funcs[GV].insert(referedFuncs.begin(), referedFuncs.end());
+            totalDefUseSites.insert(globDefUseSites.begin(), globDefUseSites.end());
+        }
+    }
+
+    OP << "resolving simple function pointer start\n";
     // resolve simple indirect calls and their targets
     for (Function &F: *M) {
         if (F.isDeclaration())
@@ -31,8 +78,17 @@ bool KELPPass::doInitialization(Module* M) {
                 set<Value*> defUseSites;
                 set<Function*> visitedFuncs;
 
-                bool flag = resolveSFP(CI, CI->getCalledOperand(), callees, defUseSites, visitedFuncs);
+                // if refered to global variables
+                if (GlobalVariable* GV = dyn_cast<GlobalVariable>(CI->getCalledOperand())) {
+                    if (confinedGlobs2Funcs.count(GV)) {
+                        simpleIndCalls.insert(CI);
+                        Ctx->Callees[CI].insert(confinedGlobs2Funcs[GV].begin(), confinedGlobs2Funcs[GV].end());
+                        potentialConfFuncs.insert(callees.begin(), callees.end());
+                        continue;
+                    }
+                }
 
+                bool flag = resolveSFP(CI, CI->getCalledOperand(), callees, defUseSites, visitedFuncs);
                 // simple indirect call
                 if (flag) {
                     simpleIndCalls.insert(CI);
@@ -48,14 +104,20 @@ bool KELPPass::doInitialization(Module* M) {
         if (!F.hasAddressTaken() || potentialConfFuncs.count(&F))
             continue;
         bool flag = true;
+        // whether F is confined
         for (User* U : F.users()) {
             if (CallInst* CI = dyn_cast<CallInst>(U)) {
-                if (!CI->isIndirectCall() &&
-                    CI->getCalledFunction() &&
-                    CI->getCalledFunction()->isDeclaration() &&
-                    sysAPIs.count(CI->getCalledFunction()->getName().str()) &&
-                    &F == CI->getArgOperand(sysAPIs[CI->getCalledFunction()->getName().str()]))
-                    continue;
+                if (!CI->isIndirectCall() && CI->getCalledFunction()) {
+                    // systemCall(...,f,...)
+                    if (CI->getCalledFunction()->isDeclaration() &&
+                        sysAPIs.count(CI->getCalledFunction()->getName().str()) &&
+                        &F == CI->getArgOperand(sysAPIs[CI->getCalledFunction()->getName().str()]))
+                        continue;
+                    // f(...)
+                    else if (CI->getCalledFunction() == &F)
+                        continue;
+                }
+
                 flag = false;
             }
             else
@@ -195,4 +257,155 @@ void KELPPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
     }
 
     MLTADFPass::analyzeIndCall(CI, FS);
+}
+
+// should not propagate to memory object, if used in Store or Other inst,
+// this is like MLTADFPass::justifyUser
+bool KELPPass::forwardAnalyze(Value* V) {
+    for (User* user: V->users()) {
+        if (user == V)
+            continue;
+        // if function pointer: f is used in CallInst, it is either call: f(xxx) or pass arguments f1(f,...).
+        else if (CallInst* CI = dyn_cast<CallInst>(user)) {
+            if (CI->isIndirectCall()) {
+                // if f is the called operand, ok
+                if (CI->getCalledOperand() == V)
+                    continue;
+                // f is an argument of indirect-call, we don't know so we conservatively mark it as no
+                else
+                    return false;
+            }
+            else {
+                // used in direct call: func(.., f, ..),
+                Function* callee = CI->getCalledFunction();
+                unsigned idx = -1;
+                for (idx = 0; idx < CI->getNumOperands() - 1; ++idx)
+                    if (CI->getOperand(idx) == V)
+                        break;
+
+                if (idx != CI->getNumOperands() - 1) {
+                    bool flag = forwardAnalyze(callee->getArg(idx));
+                    if (!flag)
+                        return false;
+                }
+            }
+        }
+        // if function pointer: f is used in direct-value flow
+        else if (isa<CmpInst>(user) || isa<PHINode>(user) ||
+                isa<BitCastInst>(user) || isa<PtrToIntInst>(user) || isa<IntToPtrInst>(user) ||
+                isa<BitCastOperator>(user) || isa<PtrToIntOperator>(user)) {
+            bool flag = forwardAnalyze(dyn_cast<Value>(user));
+            if (!flag)
+                return false;
+        }
+        // function pointer f is not allowed to data flow to other values
+        else
+            return false;
+    }
+    return true;
+}
+
+bool KELPPass::resolveSFP(Value* User, Value* V, set<Function*>& callees, set<Value*>& defUseSites,
+                set<Function*>& visitedFuncs) {
+    if (!V)
+        return true;
+
+    if (Function* CF = dyn_cast<Function>(V)) {
+        callees.insert(CF);
+        defUseSites.insert(User);
+        return true;
+    }
+
+    if (!justifyUsers(V, User))
+        return false;
+
+    // The type of Copy coule be: bitcast, ptrtoint, inttoptr
+    if (isa<BitCastInst>(V) || isa<PtrToIntInst>(V) || isa<IntToPtrInst>(V)) {
+        Instruction* VI = dyn_cast<Instruction>(V);
+        return resolveSFP(VI, VI->getOperand(0), callees, defUseSites, visitedFuncs);
+    }
+        // nested cast could appear in instructions:
+        // for example: %fadd.1 = phi i64 (i32, i32)* [ bitcast (i32 (i32, i32)* @add1 to i64 (i32, i32)*), %if.then ], [ %fadd.0, %if.end ]
+    else if (isa<BitCastOperator>(V) || isa<PtrToIntOperator>(V)) {
+        Operator* O = dyn_cast<Operator>(V);
+        return resolveSFP(O, O->getOperand(0), callees, defUseSites, visitedFuncs);
+    }
+
+    else if (PHINode* PN = dyn_cast<PHINode>(V)) {
+        for (unsigned i = 0; i < PN->getNumIncomingValues(); ++i) {
+            Value* IV = PN->getIncomingValue(i);
+            bool flag = resolveSFP(PN, IV, callees, defUseSites, visitedFuncs);
+            if (!flag)
+                return false;
+        }
+        return true;
+    }
+
+    else if (Argument* arg = dyn_cast<Argument>(V)) {
+        // if current function is address-taken-function,
+        // which means the function pointer may be passed throught indirect-call.
+        // Hence its hard to find all targets, we conservatively deem it as non-simple indirect call.
+        Function* F = arg->getParent();
+        visitedFuncs.insert(F);
+        if (F->hasAddressTaken())
+            return false;
+        unsigned argIdx;
+        for (argIdx = 0; argIdx < F->arg_size(); ++argIdx)
+            if (F->getArg(argIdx) == arg)
+                break;
+        if (argIdx == F->arg_size())
+            return false;
+
+        // Note: recursive call
+        for (CallInst* Caller: Ctx->Callers[F]) {
+            Function* PF = Caller->getFunction();
+            if (visitedFuncs.count(PF))
+                continue;
+            if (!resolveSFP(Caller, Caller->getArgOperand(argIdx), callees, defUseSites, visitedFuncs))
+                return false;
+        }
+        return true;
+    }
+
+        // function pointer: f = getF(...), where getF return function pointer.
+    else if (CallInst* CI = dyn_cast<CallInst>(V)) {
+        // if function pointer is retrived by indirect call, we conservatively deem it as non-simple function pointer
+        if (CI->isIndirectCall())
+            return false;
+        // handle recursive call
+        Function* curF = CI->getFunction();
+        visitedFuncs.insert(curF);
+        Function* CF = dyn_cast<Function>(CI->getCalledOperand());
+        if (!CF)
+            return false;
+        if (CF->isDeclaration())
+            return false;
+        if (visitedFuncs.count(CF))
+            return true;
+        // back traverse from every return inst of CF
+        for (inst_iterator i = inst_begin(CF), e = inst_end(CF); i != e; ++i) {
+            Instruction* I = &*i;
+            if (ReturnInst* RI = dyn_cast<ReturnInst>(I)) {
+                if (!resolveSFP(RI, RI->getReturnValue(), callees, defUseSites, visitedFuncs))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    // load from confined global variable is allowed
+    else if (LoadInst* LI = dyn_cast<LoadInst>(V)) {
+        if (GlobalVariable* GV = dyn_cast<GlobalVariable>(LI->getPointerOperand())) {
+            if (confinedGlobs2Funcs.count(GV)) {
+                callees.insert(confinedGlobs2Funcs[GV].begin(), confinedGlobs2Funcs[GV].end());
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+    // encounter instruction such as: load, store.
+    // Conservatively deem it as non-simple indirect call
+    else
+        return false;
 }
