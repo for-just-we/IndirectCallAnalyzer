@@ -217,7 +217,7 @@ struct A {
 | 操作类型 | 规则 (建立在 `u(f) = true` 基础上) |
 | ---- | ---- |
 | `addr`: `f = &Func` | `pts(f) = { Func }`, `s(f) = true` |
-| `load confined glob`: `f = *g` | `pts(f) &= pts(g)`, `s(f) = true` |
+| `load confined glob`: `f = *g` | `pts(f) += pts(g)`, `s(f) = true` |
 | `copy`: `f = fs` | `pts(f) += pts(fs)`, `s(f) &= s(fs)` |
 | `phi`: `f = phi(f1, f2)`| `pts(f) += pts(f1) + pts(f2)`, `s(f) &= s(f1) & s(f2)` |
 | `arg`: `func(f, ..)` | for all call: `v = func(fa,..)`, `pts(f) += pts(fa)`, `s(f) &= s(fa)` |
