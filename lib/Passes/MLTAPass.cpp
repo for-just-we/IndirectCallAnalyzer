@@ -485,7 +485,6 @@ bool MLTAPass::typePropInFunction(Function *F) {
         if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
             PO = SI->getPointerOperand(); // store的指针变量，dest
             VO = SI->getValueOperand(); // 被store的value，也就是函数地址，source
-            DBG << "store inst: " << getInstructionText(SI) << "\n";
         }
             // case2: 用聚合常量给结构体变量赋值
         else if (CallInst *CI = dyn_cast<CallInst>(I)) {

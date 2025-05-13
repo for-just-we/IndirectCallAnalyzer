@@ -34,6 +34,7 @@ bool KELPPass::doInitialization(Module* M) {
 
         // check all users of the global variable. It should not propagate to memory object.
         bool flag = true;
+        bool globalConfined = true;
         for (User* U: GV->users()) {
             // store inst: *g = func;
             if (StoreInst* SGI = dyn_cast<StoreInst>(U)) {
@@ -42,14 +43,27 @@ bool KELPPass::doInitialization(Module* M) {
                     globDefUseSites.insert(SGI);
                     referedFuncs.insert(SF);
                 }
+                else {
+                    set<Function*> callees;
+                    set<Value*> defUseSites;
+                    set<Function*> visitedFuncs;
+                    bool isSimpleFuncPtr = resolveSFP(SGI, SGI->getValueOperand(), callees, defUseSites, visitedFuncs);
+
+                    if (isSimpleFuncPtr) {
+                        globDefUseSites.insert(defUseSites.begin(), defUseSites.end());
+                        referedFuncs.insert(callees.begin(), callees.end());
+                    }
+                    else {
+                        flag = false;
+                        break;
+                    }
+                }
             }
 
             // v = *g;
             else if (LoadInst* LGI = dyn_cast<LoadInst>(U)) {
-                if (!forwardAnalyze(LGI)) {
-                    flag = false;
-                    break;
-                }
+                if (!forwardAnalyze(LGI))
+                    globalConfined = false;
             }
 
             else {
@@ -60,7 +74,8 @@ bool KELPPass::doInitialization(Module* M) {
         // confined global variables
         if (flag) {
             confinedGlobs2Funcs[GV].insert(referedFuncs.begin(), referedFuncs.end());
-            totalDefUseSites.insert(globDefUseSites.begin(), globDefUseSites.end());
+            if (globalConfined)
+                totalDefUseSites.insert(globDefUseSites.begin(), globDefUseSites.end());
         }
     }
 
