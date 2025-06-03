@@ -34,7 +34,7 @@ public:
 
     MLTAPass(GlobalContext *Ctx_): FLTAPass(Ctx_){
         ID = "multi layer type analysis";
-        Ctx->util.LoadElementsStructNameMap(Ctx->Modules);
+        CommonUtil::LoadElementsStructNameMap(Ctx->Modules);
     }
 
     void analyzeIndCall(CallInst* callInst, FuncSet* FS) override;
@@ -62,10 +62,10 @@ public:
     ////////////////////////////////////////////////////////////////
     // Util functions
     ////////////////////////////////////////////////////////////////
-    bool isCompositeType(Type *Ty);
-    Type* getFuncPtrType(Value *V);
+    static bool isCompositeType(Type *Ty);
+    static Type* getFuncPtrType(Value *V);
     Value* recoverBaseType(Value *V);
-    Function* getBaseFunction(Value *V);
+    static Function* getBaseFunction(Value *V);
 
     // type utils
     void escapeType(Value *V);

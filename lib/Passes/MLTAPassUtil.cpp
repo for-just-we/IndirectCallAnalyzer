@@ -48,7 +48,7 @@ Type* MLTAPass::getFuncPtrType(Value *V) {
             return ETy;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 // 获取value的base type
@@ -59,7 +59,7 @@ Value* MLTAPass::recoverBaseType(Value *V) {
         if (AliasMap.find(V) != AliasMap.end())
             return AliasMap[V];
     }
-    return NULL;
+    return nullptr;
 }
 
 // 要么初始值是function，要么一直cast，不过这里没有考虑ptrtoint的情况了。
@@ -79,7 +79,7 @@ Function* MLTAPass::getBaseFunction(Value *V) {
                 return F;
         CV = O;
     }
-    return NULL;
+    return nullptr;
 }
 
 
@@ -89,7 +89,7 @@ void MLTAPass::escapeType(Value *V) {
     getBaseTypeChain(TyChain, V, Complete);
     for (auto T : TyChain) {
         DBG << "[Escape] Type: " << *(T.first)<< "; Idx: " << T.second<< "\n";
-        typeEscapeSet.insert(Ctx->util.typeIdxHash(T.first, T.second));
+        typeEscapeSet.insert(CommonUtil::typeIdxHash(T.first, T.second));
     }
 }
 
@@ -104,11 +104,11 @@ void MLTAPass::propagateType(Value *ToV, Type *FromTy, int Idx) {
 
     for (auto T : TyChain) {
         // 如果type和From Type匹配
-        if (Ctx->util.typeHash(T.first) == Ctx->util.typeHash(FromTy) && T.second == Idx)
+        if (CommonUtil::typeHash(T.first) == CommonUtil::typeHash(FromTy) && T.second == Idx)
             continue;
 
-        typeIdxPropMap[Ctx->util.typeHash(T.first)][T.second].insert(
-                hashidx_c(Ctx->util.typeHash(FromTy), Idx));
+        typeIdxPropMap[CommonUtil::typeHash(T.first)][T.second].insert(
+                hashidx_c(CommonUtil::typeHash(FromTy), Idx));
         DBG << "[PROP] " << *(FromTy) << ": " << Idx << "\n\t===> " << *(T.first) << " " << T.second << "\n";
     }
 }
@@ -119,10 +119,10 @@ void MLTAPass::propagateType(Value *ToV, Type *FromTy, int Idx) {
 // 这里有个trick，对结构体类型返回其类型，如果是primitive type或者函数指针类型，getBaseType返回null
 Type* MLTAPass::getBaseType(Value* V, set<Value*> &Visited) {
     if (!V)
-        return NULL;
+        return nullptr;
 
     if (Visited.find(V) != Visited.end())
-        return NULL;
+        return nullptr;
     Visited.insert(V);
 
     Type *Ty = V->getType();
@@ -161,7 +161,7 @@ Type* MLTAPass::getBaseType(Value* V, set<Value*> &Visited) {
     }
     else {
     }
-    return NULL;
+    return nullptr;
 }
 
 
@@ -171,7 +171,7 @@ Type* MLTAPass::getBaseType(Value* V, set<Value*> &Visited) {
 // Chain: 保存value V的type chain， V：被赋值的value，Complete：分析是否完备
 bool MLTAPass::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete) {
     Complete = true;
-    Value *CV = V, *NextV = NULL;
+    Value *CV = V, *NextV = nullptr;
     list<typeidx_t> TyList;
     set<Value*> Visited;
 
@@ -211,7 +211,7 @@ bool MLTAPass::getBaseTypeChain(list<typeidx_t> &Chain, Value *V, bool &Complete
 
     if (!Chain.empty() && !Complete) {
         DBG << "add escape type in get base chain: " << getTypeInfo(Chain.back().first) << "\n";
-        typeCapSet.insert(Ctx->util.typeHash(Chain.back().first));
+        typeCapSet.insert(CommonUtil::typeHash(Chain.back().first));
     }
 
     return true;
@@ -227,7 +227,7 @@ Type* MLTAPass::_getPhiBaseType(PHINode *PN, set<Value *> &Visited) {
             return BTy;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -255,7 +255,7 @@ bool MLTAPass::nextLayerBaseType(Value* V, list<typeidx_t> &TyList,
         NextV = GEP->getPointerOperand(); // 返回s
         bool ret = getGEPLayerTypes(GEP, TyList);
         if (!ret)
-            NextV = NULL;
+            NextV = nullptr;
         return ret;
     }
     // 如果是load指令
@@ -300,7 +300,7 @@ bool MLTAPass::nextLayerBaseType(Value* V, list<typeidx_t> &TyList,
         return nextLayerBaseType(UO->getOperand(0), TyList, NextV, Visited);
     }
 
-    NextV = NULL;
+    NextV = nullptr;
     return false;
 }
 
@@ -359,7 +359,7 @@ bool MLTAPass::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
         int Idx = *it;
         TmpTyList.push_front(typeidx_c(ETy, Idx));
         // Continue to parse subty
-        Type* SubTy = NULL;
+        Type* SubTy = nullptr;
         if (StructType *STy = dyn_cast<StructType>(ETy))
             SubTy = STy->getElementType(Idx);
         else if (ArrayType *ATy = dyn_cast<ArrayType>(ETy))
@@ -401,7 +401,7 @@ bool MLTAPass::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
 
 bool MLTAPass::getDependentTypes(Type* Ty, int Idx, set<hashidx_t> &PropSet) {
     list<hashidx_t> LT;
-    LT.push_back(hashidx_c(Ctx->util.typeHash(Ty), Idx));
+    LT.push_back(hashidx_c(CommonUtil::typeHash(Ty), Idx));
     set<hashidx_t> Visited;
 
     while (!LT.empty()) {

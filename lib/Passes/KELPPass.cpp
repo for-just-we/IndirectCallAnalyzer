@@ -8,7 +8,7 @@
 bool KELPPass::doInitialization(Module* M) {
     OP << "#" << MIdx << " Initializing: " <<M->getName()<<"\n";
     ++MIdx;
-    CallGraphPass::doInitialization(M);
+    MLTAPass::doInitialization(M);
     DLMap[M] = &(M->getDataLayout());
     Int8PtrTy[M] = Type::getInt8PtrTy(M->getContext()); // int8 type id: 15
     IntPtrTy[M] = DLMap[M]->getIntPtrType(M->getContext()); // int type id: 13
@@ -122,14 +122,15 @@ bool KELPPass::doInitialization(Module* M) {
         // whether F is confined
         for (User* U : F.users()) {
             if (CallInst* CI = dyn_cast<CallInst>(U)) {
-                if (!CI->isIndirectCall() && CI->getCalledFunction()) {
+                Function* baseF = CommonUtil::getBaseFunction(CI->getCalledOperand());
+                if (!CI->isIndirectCall() && baseF) {
                     // systemCall(...,f,...)
-                    if (CI->getCalledFunction()->isDeclaration() &&
-                        sysAPIs.count(CI->getCalledFunction()->getName().str()) &&
-                        &F == CI->getArgOperand(sysAPIs[CI->getCalledFunction()->getName().str()]))
+                    if (baseF->isDeclaration() &&
+                        sysAPIs.count(baseF->getName().str()) &&
+                        &F == CI->getArgOperand(sysAPIs[baseF->getName().str()]))
                         continue;
                     // f(...)
-                    else if (CI->getCalledFunction() == &F)
+                    else if (baseF == &F)
                         continue;
                 }
 
@@ -200,7 +201,7 @@ bool KELPPass::doInitialization(Module* M) {
         // NOTE: declaration functions can also have address taken
         if (F.hasAddressTaken() && !isVirtualFunction(&F) && !confinedAddrTakenFuncs.count(&F)) {
             Ctx->AddressTakenFuncs.insert(&F);
-            size_t FuncHash = Ctx->util.funcHash(&F, false);
+            size_t FuncHash = CommonUtil::funcHash(&F, false);
             // 添加FLTA的结果
             // function的hash，用来进行FLTA，后面可能会修改
             Ctx->sigFuncsMap[FuncHash].insert(&F);
@@ -292,7 +293,7 @@ bool KELPPass::forwardAnalyze(Value* V) {
             }
             else {
                 // used in direct call: func(.., f, ..),
-                Function* callee = CI->getCalledFunction();
+                Function* callee = CommonUtil::getBaseFunction(CI->getCalledOperand());
                 unsigned idx = -1;
                 for (idx = 0; idx < CI->getNumOperands() - 1; ++idx)
                     if (CI->getOperand(idx) == V)

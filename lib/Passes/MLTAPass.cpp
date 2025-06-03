@@ -41,7 +41,7 @@ bool MLTAPass::doInitialization(Module* M) {
         // NOTE: declaration functions can also have address taken
         if (F.hasAddressTaken() && !isVirtualFunction(&F)) {
             Ctx->AddressTakenFuncs.insert(&F);
-            size_t FuncHash = Ctx->util.funcHash(&F, false);
+            size_t FuncHash = CommonUtil::funcHash(&F, false);
             // 添加FLTA的结果
             // function的hash，用来进行FLTA，后面可能会修改
             Ctx->sigFuncsMap[FuncHash].insert(&F);
@@ -112,7 +112,7 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
     int PrevIdx = -1;
     // callee expression
     Value* CV = CI->getCalledOperand();
-    Value* NextV = NULL;
+    Value* NextV = nullptr;
     int LayerNo = 1;
 
     // Get the next-layer type
@@ -122,8 +122,8 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
 
     auto *Scope = cast<DIScope>(CI->getDebugLoc().getScope());
     string callsiteFile = Scope->getFilename().str();
-    int line = CI->getDebugLoc().getLine();
-    int col = CI->getDebugLoc().getCol();
+    unsigned line = CI->getDebugLoc().getLine();
+    unsigned col = CI->getDebugLoc().getCol();
     string content = callsiteFile + ":" + itostr(line) + ":" + itostr(col) + "|";
 
     while (ContinueNextLayer) {
@@ -131,7 +131,7 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
         if (LayerNo >= max_type_layer)
             break;
 
-        if (typeCapSet.find(Ctx->util.typeHash(PrevLayerTy)) != typeCapSet.end())
+        if (typeCapSet.find(CommonUtil::typeHash(PrevLayerTy)) != typeCapSet.end())
             break;
 
         set<Value*> Visited;
@@ -144,9 +144,9 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
                 break;
 
             ++LayerNo;
-            size_t TyIdxHash = Ctx->util.typeIdxHash(TyIdx.first, TyIdx.second);
+            size_t TyIdxHash = CommonUtil::typeIdxHash(TyIdx.first, TyIdx.second);
             // -1 represents all possible fields of a struct
-            size_t TyIdxHash_1 = Ctx->util.typeIdxHash(TyIdx.first, -1);
+            size_t TyIdxHash_1 = CommonUtil::typeIdxHash(TyIdx.first, -1);
 
             // Caching for performance
             if (MatchedFuncsMap.find(TyIdxHash) != MatchedFuncsMap.end())
@@ -157,7 +157,7 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
                     break;
                 if (typeEscapeSet.find(TyIdxHash_1) != typeEscapeSet.end())
                     break;
-                getTargetsWithLayerType(Ctx->util.typeHash(TyIdx.first), TyIdx.second, FS1);
+                getTargetsWithLayerType(CommonUtil::typeHash(TyIdx.first), TyIdx.second, FS1);
                 // Collect targets from dependent types that may propagate
                 // targets to it
                 set<hashidx_t> PropSet;
@@ -174,14 +174,14 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
             // Next layer may not always have a subset of the previous layer
             // because of casting, so let's do intersection
             intersectFuncSets(FS1, *FS, FS2); // FS2 = FS & FS1
-            if (FS2.size() == 0)
+            if (FS2.empty())
                 break;
             *FS = FS2; // FS = FS & FS1
             CV = NextV;
 
             // 如果出现了层次结构体赋值，比如test13中的b.a = a2; 此时B::a并不会confine到function，应该被标记为escaped，但是B::a不是函数指针field。
             // 因此将B标注为escaped type就有必要。
-            if (typeCapSet.find(Ctx->util.typeHash(TyIdx.first)) != typeCapSet.end()) {
+            if (typeCapSet.find(CommonUtil::typeHash(TyIdx.first)) != typeCapSet.end()) {
                 ContinueNextLayer = false;
                 DBG << "found escaped type: " << getInstructionText(TyIdx.first) << " stop\n";
                 break;
@@ -198,7 +198,7 @@ void MLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
         Ctx->NumSecondLayerTargets += FS->size();
     }
     else {
-        Ctx->NumFirstLayerTargets += Ctx->sigFuncsMap[Ctx->util.callHash(CI)].size();
+        Ctx->NumFirstLayerTargets += Ctx->sigFuncsMap[CommonUtil::callHash(CI)].size();
         Ctx->NumFirstLayerTypeCalls += 1;
     }
 }
@@ -248,7 +248,7 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
             ContainersMap[O] = make_pair(U, oi->getOperandNo());
             string subConstantText = getInstructionText(O);
 
-            Function* FoundF = NULL; // 当前子常量下的Function Pointer变量
+            Function* FoundF = nullptr; // 当前子常量下的Function Pointer变量
             // Case 1: function address is assigned to a type，如果当前子常量是函数指针
             if (Function* F = dyn_cast<Function>(O))
                 FoundF = F; // 如果O是函数类型
@@ -273,7 +273,7 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
                     User* OU = dyn_cast<User>(PIO->getOperand(0)); // 如果指针指向聚合常量
                     if (isa<GlobalVariable>(PIO->getOperand(0))) {
                         if (PIO->getOperand(0)->getType()->isStructTy())
-                            typeCapSet.insert(Ctx->util.typeHash(U->getType()));
+                            typeCapSet.insert(CommonUtil::typeHash(U->getType()));
                     }
                     else
                         LU.push_back(OU);
@@ -292,7 +292,7 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
                     // 如果引用到了别的全局变量，直接退出
                     if (isa<GlobalVariable>(CO->getOperand(0))) {
                         if (CO->getOperand(0)->getType()->isStructTy())
-                            typeCapSet.insert(Ctx->util.typeHash(U->getType()));
+                            typeCapSet.insert(CommonUtil::typeHash(U->getType()));
                     }
                     else
                         LU.push_back(OU);
@@ -317,7 +317,7 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
                     Type* Ty = POTy->getPointerElementType(); // 获取指针变量的类型
                     // FIXME: take it as a confinement instead of a cap
                     if (Ty->isStructTy()) {
-                        typeCapSet.insert(Ctx->util.typeHash(Ty));
+                        typeCapSet.insert(CommonUtil::typeHash(Ty));
                     }
 
                 }
@@ -342,10 +342,10 @@ bool MLTAPass::typeConfineInInitializer(GlobalVariable *GV) {
 
                     Type* CTy = Container.first->getType(); // 父聚合常量的类型
                     set<size_t> TyHS; // 所有满足当前层次对应的结构体type的hash
-                    TyHS.insert(Ctx->util.typeHash(CTy));
+                    TyHS.insert(CommonUtil::typeHash(CTy));
                     string type_name = getInstructionText(CTy);
                     if (StructType *STy = dyn_cast<StructType>(CTy))
-                        type_name = Ctx->util.getValidStructName(STy);
+                        type_name = CommonUtil::getValidStructName(STy);
 
                     for (auto TyH: TyHS)  // 遍历所有可以和当前层次类型对应上的类型hash
                         typeIdxFuncsMap[TyH][Container.second].insert(FoundF);
@@ -414,8 +414,7 @@ bool MLTAPass::typeConfineInFunction(Function *F) {
         // 访问所有参数包含了函数指针的函数调用
         else if (CallInst *CI = dyn_cast<CallInst>(I)) {
             // 访问实参
-            Value* CV = CI->getCalledOperand();
-            Function* CF = dyn_cast<Function>(CV); // CF为被调用的函数
+            Function* CF = CommonUtil::getBaseFunction(CI); // CF为被调用的函数
             for (User::op_iterator OI = CI->op_begin(), OE = CI->op_end(); OI != OE; ++OI) {
                 // 如果该参数为函数指针
                 if (Function* FF = dyn_cast<Function>(*OI)) { // 如果该参数是个函数对象，即将函数指针作为参数
@@ -435,7 +434,7 @@ bool MLTAPass::typeConfineInFunction(Function *F) {
                     if (!CF)
                         continue;
                     // Arg为函数指针对应的形参
-                    if (Argument* Arg = Ctx->util.getParamByArgNo(CF, OI->getOperandNo())) { // CF为被调用的函数，这里返回函数指针对应的形参
+                    if (Argument* Arg = CommonUtil::getParamByArgNo(CF, OI->getOperandNo())) { // CF为被调用的函数，这里返回函数指针对应的形参
                         // U为函数CF中使用了该形参的指令
                         // 遍历所有使用形参的指令
                         for (auto U: Arg->users()) {
@@ -478,7 +477,7 @@ bool MLTAPass::typePropInFunction(Function *F) {
     // 遍历F中所有的store指令
     for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
         Instruction *I = &*i;
-        Value *PO = NULL, *VO = NULL;
+        Value *PO = nullptr, *VO = nullptr;
 
         // case1: store
         // *PO = VO
@@ -486,10 +485,9 @@ bool MLTAPass::typePropInFunction(Function *F) {
             PO = SI->getPointerOperand(); // store的指针变量，dest
             VO = SI->getValueOperand(); // 被store的value，也就是函数地址，source
         }
-            // case2: 用聚合常量给结构体变量赋值
+        // case2: 用聚合常量给结构体变量赋值
         else if (CallInst *CI = dyn_cast<CallInst>(I)) {
-            Value *CV = CI->getCalledOperand();
-            Function *CF = dyn_cast<Function>(CV); // called function
+            Function *CF = CommonUtil::getBaseFunction(CI); // called function
             if (CF) { // 如果是直接调用
                 // LLVM may optimize struct assignment into a call to
                 // intrinsic memcpy
@@ -510,7 +508,7 @@ bool MLTAPass::typePropInFunction(Function *F) {
                 continue;
 
             list<typeidx_t> TyList;
-            Value* NextV = NULL;
+            Value* NextV = nullptr;
             set<Value*> Visited;
             nextLayerBaseType(VO, TyList, NextV, Visited);
             if (!TyList.empty()) {
@@ -586,12 +584,12 @@ bool MLTAPass::typePropInFunction(Function *F) {
                 EToTy = EToTy->getPointerElementType();
             // struct pointer to void*, int*, char*
             if (EFromTy->isStructTy() && (EToTy->isVoidTy() || EToTy->isIntegerTy())) {
-                typeCapSet.insert(Ctx->util.typeHash(EFromTy));
+                typeCapSet.insert(CommonUtil::typeHash(EFromTy));
 
             }
             // int*, char* to struct*
             else if (EToTy->isStructTy() && (EFromTy->isVoidTy() || EFromTy->isIntegerTy())) {
-                typeCapSet.insert(Ctx->util.typeHash(EToTy));
+                typeCapSet.insert(CommonUtil::typeHash(EToTy));
             }
         }
 
@@ -601,7 +599,7 @@ bool MLTAPass::typePropInFunction(Function *F) {
                 EFromTy = EFromTy->getPointerElementType();
 
             if (EFromTy->isStructTy())
-                typeCapSet.insert(Ctx->util.typeHash(EFromTy));
+                typeCapSet.insert(CommonUtil::typeHash(EFromTy));
         }
 
         else if (ToTy->isPointerTy() && FromTy->isIntegerTy()) {
@@ -610,7 +608,7 @@ bool MLTAPass::typePropInFunction(Function *F) {
                 EToTy = EToTy->getPointerElementType();
 
             if (EToTy->isStructTy())
-                typeCapSet.insert(Ctx->util.typeHash(EToTy));
+                typeCapSet.insert(CommonUtil::typeHash(EToTy));
         }
     }
 
@@ -631,12 +629,12 @@ void MLTAPass::confineTargetFunction(Value* V, Function* F) {
     for (auto TI : TyChain) {
         DBG << TI.second << " field of Type: " << getInstructionText(TI.first) <<
             " add function: " << F->getName().str() << "\n";
-        typeIdxFuncsMap[Ctx->util.typeHash(TI.first)][TI.second].insert(F);
+        typeIdxFuncsMap[CommonUtil::typeHash(TI.first)][TI.second].insert(F);
     }
     if (!Complete) {
         if (!TyChain.empty()) {
             DBG << "add escape type in confining function : " << getTypeInfo(TyChain.back().first) << "\n";
-            typeCapSet.insert(Ctx->util.typeHash(TyChain.back().first));
+            typeCapSet.insert(CommonUtil::typeHash(TyChain.back().first));
         }
         else {
             // ToDo: verify is this necessary.

@@ -101,7 +101,7 @@ bool MLTADFPass::resolveSFP(Value* User, Value* V, set<Function*>& callees,
         // handle recursive call
         Function* curF = CI->getFunction();
         visitedFuncs.insert(curF);
-        Function* CF = dyn_cast<Function>(CI->getCalledOperand());
+        Function* CF = dyn_cast<Function>(CommonUtil::getBaseFunction(CI->getCalledOperand()));
         if (!CF)
             return false;
         if (CF->isDeclaration())

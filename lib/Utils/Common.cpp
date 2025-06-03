@@ -9,40 +9,9 @@
 #include <regex>
 #include <utility>
 #include "Utils/Common.h"
-#include "Utils/Config.h"
 
 // Map from struct elements to its name
-static map<string, set<StringRef>> elementsStructNameMap;
-
-bool CommonUtil::trimPathSlash(string &path, int slash) {
-    while (slash > 0) {
-        path = path.substr(path.find('/') + 1);
-        --slash;
-    }
-
-    return true;
-}
-
-string CommonUtil::getFileName(DILocation *Loc, DISubprogram *SP) {
-    string FN;
-    if (Loc)
-        FN = Loc->getFilename().str();
-    else if (SP)
-        FN = SP->getFilename().str();
-    else
-        return "";
-
-    int slashToTrim = 2;
-    char *user = getlogin();
-    if (strstr(user, "kjlu")) {
-        slashToTrim = 0;
-        trimPathSlash(FN, slashToTrim);
-    }
-    else {
-        // OP << "== Warning: please specify the path of linux source.";
-    }
-    return FN;
-}
+map<string, set<StringRef>> CommonUtil::elementsStructNameMap;
 
 // ToDo：考虑匿名结构体
 string CommonUtil::getValidStructName(string structName) {
@@ -67,47 +36,10 @@ string CommonUtil::getValidStructName(StructType *STy) {
     return valid_struct_name;
 }
 
-
-StringRef CommonUtil::getCalledFuncName(CallInst *CI) {
-    Value *V;
-    V = CI->getCalledOperand();
-    assert(V);
-
-    InlineAsm *IA = dyn_cast<InlineAsm>(V);
-    if (IA)
-        return StringRef(IA->getAsmString());
-
-    User *UV = dyn_cast<User>(V);
-    if (UV) {
-        if (UV->getNumOperands() > 0) {
-            Value *VUV = UV->getOperand(0);
-            return VUV->getName();
-        }
-    }
-
-    return V->getName();
-}
-
-// 获取指令I的源代码位置信息
-DILocation* CommonUtil::getSourceLocation(Instruction *I) {
-    if (!I)
-        return NULL;
-
-    MDNode *N = I->getMetadata("dbg");
-    if (!N)
-        return NULL;
-
-    DILocation *Loc = dyn_cast<DILocation>(N);
-    if (!Loc || Loc->getLine() < 1)
-        return NULL;
-
-    return Loc;
-}
-
 // 获取函数F的第ArgNo个参数对象
 Argument* CommonUtil::getParamByArgNo(Function* F, int8_t ArgNo) {
     if (ArgNo >= F->arg_size())
-        return NULL;
+        return nullptr;
 
     int8_t idx = 0;
     Function::arg_iterator ai = F->arg_begin();
@@ -240,13 +172,6 @@ size_t CommonUtil::typeIdxHash(Type *Ty, int Idx) {
     return hashIdxHash(typeHash(Ty), Idx);
 }
 
-size_t CommonUtil::strIntHash(string str, int i) {
-    hash<string> str_hash;
-    // FIXME: remove pos
-    size_t pos = str.rfind("/");
-    return str_hash(str.substr(0, pos) + to_string(i));
-}
-
 int64_t CommonUtil::getGEPOffset(const Value *V, const DataLayout *DL) {
     const GEPOperator *GEP = dyn_cast<GEPOperator>(V);
 
@@ -270,6 +195,23 @@ int64_t CommonUtil::getGEPOffset(const Value *V, const DataLayout *DL) {
     offset += DL->getIndexedOffsetInType(ptrTy, indexOps);
     return offset;
 }
+
+
+Function* CommonUtil::getBaseFunction(Value *V) {
+    if (Function *F = dyn_cast<Function>(V))
+        if (F != nullptr)
+            return F;
+    Value *CV = V;
+    while (BitCastOperator *BCO = dyn_cast<BitCastOperator>(CV)) {
+        Value* O = BCO->getOperand(0);
+        if (Function *F = dyn_cast<Function>(O))
+            if (F != nullptr)
+                return F;
+        CV = O;
+    }
+    return NULL;
+}
+
 
 string getInstructionText(Value* inst) {
     if (Function* F = dyn_cast<Function>(inst))

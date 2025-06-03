@@ -85,45 +85,37 @@ typedef DenseMap<CallInst*, FuncSet> CalleeMap; // 将Call指令映射为对应�
 
 class CommonUtil {
 public:
+    static map<string, set<StringRef>> elementsStructNameMap;
     //
     // Common functions
     //
-    string getValidStructName(string structName);
+    static string getValidStructName(string structName);
 
-    string getValidStructName(StructType* Ty);
-
-    string getFileName(DILocation *Loc, DISubprogram *SP=NULL);
-
-    StringRef getCalledFuncName(CallInst *CI);
-
-    // 获取指令I的源代码位置信息
-    DILocation *getSourceLocation(Instruction *I);
+    static string getValidStructName(StructType* Ty);
 
     // 获取函数F的第ArgNo个参数对象
-    Argument *getParamByArgNo(Function *F, int8_t ArgNo);
+    static Argument *getParamByArgNo(Function *F, int8_t ArgNo);
 
     // 根据函数F的FunctionType (返回类型、参数类型、是否支持可变参数)计算F的hash值
-    size_t funcHash(Function *F, bool withName = false);
+    static size_t funcHash(Function *F, bool withName = false);
 
     // 根据callsite对应的FunctionType计算hash
-    size_t callHash(CallInst *CI);
+    static size_t callHash(CallInst *CI);
 
-    size_t typeHash(Type *Ty);
+    static size_t typeHash(Type *Ty);
 
-    size_t typeIdxHash(Type *Ty, int Idx = -1);
+    static size_t typeIdxHash(Type *Ty, int Idx = -1);
 
-    size_t hashIdxHash(size_t Hs, int Idx = -1);
+    static size_t hashIdxHash(size_t Hs, int Idx = -1);
 
-    size_t strIntHash(string str, int i);
+    static string structTyStr(StructType *STy);
 
-    string structTyStr(StructType *STy);
-
-    bool trimPathSlash(string &path, int slash);
-
-    int64_t getGEPOffset(const Value *V, const DataLayout *DL);
+    static int64_t getGEPOffset(const Value *V, const DataLayout *DL);
 
     // 从所有模块加载结构体信息，初始化使用
-    void LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules);
+    static void LoadElementsStructNameMap(vector<pair<Module*, StringRef>> &Modules);
+
+    static Function* getBaseFunction(Value* V);
 };
 
 // 保存中间及最终结果的结构体
@@ -167,8 +159,6 @@ struct GlobalContext {
     ModuleList Modules;
     ModuleNameMap ModuleMaps;
     set<string> InvolvedModules;
-
-    CommonUtil util;
 };
 
 

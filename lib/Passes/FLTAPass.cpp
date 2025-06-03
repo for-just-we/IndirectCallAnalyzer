@@ -18,7 +18,7 @@ bool FLTAPass::doInitialization(Module* M) {
         // NOTE: declaration functions can also have address taken
         if (F.hasAddressTaken() && !isVirtualFunction(&F)) {
             Ctx->AddressTakenFuncs.insert(&F);
-            size_t FuncHash = Ctx->util.funcHash(&F, false);
+            size_t FuncHash = CommonUtil::funcHash(&F, false);
             // 添加FLTA的结果
             // function的hash，用来进行FLTA，后面可能会修改
             Ctx->sigFuncsMap[FuncHash].insert(&F);
@@ -60,8 +60,8 @@ bool FLTAPass::fuzzyTypeMatch(Type* Ty1, Type* Ty2, Module *M1, Module *M2) {
     // 如果都是结构体且属于同一个结构体类型
     // 修改，不直接比较结构体名字，而是比较结构体hash
     if (Ty1->isStructTy() && Ty2->isStructTy() &&
-        (Ctx->util.getValidStructName(dyn_cast<StructType>(Ty1)) ==
-         Ctx->util.getValidStructName(dyn_cast<StructType>(Ty2))))
+        (CommonUtil::getValidStructName(dyn_cast<StructType>(Ty1)) ==
+         CommonUtil::getValidStructName(dyn_cast<StructType>(Ty2))))
         return true;
     if (Ty1->isIntegerTy() && Ty2->isIntegerTy() &&
         Ty1->getIntegerBitWidth() == Ty2->getIntegerBitWidth())
@@ -80,7 +80,7 @@ void FLTAPass::findCalleesWithType(CallInst *CI, FuncSet &S) {
     if (CI->isInlineAsm())
         return;
     // Performance improvement: cache results for types
-    size_t CIH = Ctx->util.callHash(CI);
+    size_t CIH = CommonUtil::callHash(CI);
     if (MatchedFuncsMap.find(CIH) != MatchedFuncsMap.end()) {
         if (!MatchedFuncsMap[CIH].empty())
             S.insert(MatchedFuncsMap[CIH].begin(), MatchedFuncsMap[CIH].end());
@@ -101,7 +101,7 @@ void FLTAPass::findCalleesWithType(CallInst *CI, FuncSet &S) {
             continue;
 
         // Types completely match
-        if (Ctx->util.callHash(CI) == Ctx->util.funcHash(F)) {
+        if (CommonUtil::callHash(CI) == CommonUtil::funcHash(F)) {
             S.insert(F);
             continue;
         }
@@ -142,7 +142,7 @@ void FLTAPass::findCalleesWithType(CallInst *CI, FuncSet &S) {
 
 
 void FLTAPass::analyzeIndCall(CallInst* CI, FuncSet* FS) {
-    size_t CIH = Ctx->util.callHash(CI);
+    size_t CIH = CommonUtil::callHash(CI);
     if (MatchedICallTypeMap.find(CIH) != MatchedICallTypeMap.end())
         *FS = MatchedICallTypeMap[CIH];
     else {
